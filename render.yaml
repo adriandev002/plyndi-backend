@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: plyndi-backend
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: CLIENT_SHARED_KEY
+        sync: false
+      - key: RATE_LIMIT_MAX
+        value: "60"
+      - key: RATE_LIMIT_WINDOW_MINUTES
+        value: "60"
+      - key: SYNC_STORAGE_DIR
+        value: "/var/data/plyndi/backups"
+      - key: SYNC_MAX_VERSIONS
+        value: "10"
+      - key: SYNC_MAX_SCHEMA_VERSION
+        value: "1"
+      - key: SYNC_JWT_SECRET
+        sync: false
+      - key: SYNC_REQUIRE_VERIFIED_IDENTITY
+        value: "true"

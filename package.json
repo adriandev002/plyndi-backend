@@ -1,0 +1,19 @@
+{
+  "name": "plyndi-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plyndi's AI/Places gateway. The one place OpenAI, Gemini, and Google Places API keys live server-side — neither the iOS app nor the future Android app ever holds a real key; both call this service instead.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0"
+  }
+}
