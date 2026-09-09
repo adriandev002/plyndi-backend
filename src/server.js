@@ -8,6 +8,7 @@ const requestLog = require('./middleware/requestLog');
 
 const geminiRoute = require('./routes/gemini');
 const openaiRoute = require('./routes/openai');
+const generateRoute = require('./routes/generate');
 const placesRoute = require('./routes/places');
 const syncRoute = require('./routes/sync');
 const affiliateRoute = require('../routes/affiliateRoutes');
@@ -41,6 +42,8 @@ app.use(sanitizeBody);
 
 app.use('/v1/gemini', geminiRoute);
 app.use('/v1/openai', openaiRoute);
+// Provider-agnostic route: the client asks for a profile, the server picks the model.
+app.use('/v1/generate', generateRoute);
 app.use('/v1/places', placesRoute);
 app.use('/v1/sync', syncRoute);
 // Regional affiliate recommendations return all three provider options in one call.
