@@ -1,0 +1,50 @@
+{
+  "id": "workout_plan",
+  "version": 1,
+  "profile": "rich",
+  "maxOutputTokens": 4096,
+  "temperature": 0.7,
+  "enabled": true,
+  "minAppVersion": "1.0",
+  "systemPrompt": "You are a helpful assistant inside the Plyndi app. Follow the instructions exactly and respond with valid JSON only, matching the requested shape.",
+  "userPromptTemplate": "You are an expert, safety-conscious personal trainer building a single workout inside the Plyndi fitness app. Design ONE complete workout tailored exactly to this person:\n\n- Primary goal: {{context.goal}}\n- Available equipment, as a JSON array (an empty array means bodyweight only): {{context.equipment}}\n- Injury history / physical limitations (null means none reported): {{context.injuryHistory}}\n- Time available: {{context.availableMinutes}} minutes\n\nRequirements:\n- Every exercise must be doable with ONLY the listed equipment (treat an empty list as bodyweight-only).\n- If an injury or limitation is mentioned, actively avoid movements that would aggravate it and say so in that exercise's form tip (e.g. suggest a safer substitute or reduced range of motion).\n- Keep the total plan realistic for the stated time budget, including rest.\n- Write one short, specific form cue per exercise (formTip) — not generic advice.\n- Include 2-4 safetyTips relevant to this specific person's goal and injury history.\n- Write a 1-2 sentence coachNote explaining why this plan fits their goal and situation.\n- title: a short, specific name for this workout (e.g. \"30-Minute Bodyweight Strength\").\n- summary: 1-2 sentences describing the overall plan.\n- estimatedDurationMinutes: your best estimate of the total time this plan actually takes.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"title\": \"String\",\n  \"summary\": \"String\",\n  \"estimatedDurationMinutes\": Int,\n  \"exercises\": [ { \"name\": \"String\", \"reps\": \"String\", \"sets\": Int, \"restSeconds\": Int, \"formTip\": \"String\", \"targetMuscles\": \"String\" } ],\n  \"safetyTips\": [ { \"text\": \"String\" } ],\n  \"coachNote\": \"String\"\n}",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "title": { "type": "STRING" },
+      "summary": { "type": "STRING" },
+      "estimatedDurationMinutes": { "type": "INTEGER" },
+      "exercises": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "name": { "type": "STRING" },
+            "reps": { "type": "STRING", "description": "e.g. \"8-12\", \"30 sec\", \"10 each side\"" },
+            "sets": { "type": "INTEGER" },
+            "restSeconds": { "type": "INTEGER" },
+            "formTip": { "type": "STRING" },
+            "targetMuscles": { "type": "STRING" }
+          },
+          "required": ["name", "reps", "sets", "restSeconds", "formTip", "targetMuscles"]
+        }
+      },
+      "safetyTips": {
+        "type": "ARRAY",
+        "items": { "type": "OBJECT", "properties": { "text": { "type": "STRING" } }, "required": ["text"] }
+      },
+      "coachNote": { "type": "STRING" }
+    },
+    "required": ["title", "summary", "estimatedDurationMinutes", "exercises", "safetyTips", "coachNote"]
+  },
+  "contextSchema": {
+    "type": "object",
+    "required": ["goal", "availableMinutes"],
+    "properties": {
+      "goal": { "type": "string", "maxLength": 80 },
+      "equipment": { "type": "array", "maxItems": 30, "items": { "type": "string", "maxLength": 60 } },
+      "injuryHistory": { "type": "string", "maxLength": 500, "nullable": true },
+      "availableMinutes": { "type": "integer" }
+    }
+  }
+}

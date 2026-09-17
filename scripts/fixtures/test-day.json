@@ -1,0 +1,71 @@
+{
+  "profile": "rich",
+  "maxOutputTokens": 12288,
+  "temperature": 0.65,
+  "system": "You are a meticulous local travel planner inside the Plyndi app. You know real places, real opening hours and real public transport. Respond with valid JSON only, matching the requested shape exactly. Never invent a place that does not exist.",
+  "user": "Plan DAY 2 of a 5-day trip to Osaka, Japan for 2 adults and 1 child aged 7. Date: 16/03/2026 (dd/MM/yyyy) — use its real weekday and opening hours. They are staying at Swissotel Nankai Osaka in Namba, and each day starts and ends there. Preferences: travelling as a Family (every day needs somewhere the children genuinely enjoy, shorter walks, earlier finishes); Pace Moderate (4 stops with comfortable gaps); Style Cultural (history, temples, museums, heritage districts); Accommodation Comfort; they like early starts so the first stop may begin from 08:00. Total budget 3000 USD for the whole party. Do not reuse these stops already used on other days: Osaka Castle Park, Dotonbori Food Street, Kuromon Market. Requirements: every stop needs a real name that exists in Osaka; startTime is 24-hour HH:mm; durationMinutes realistic for the place; legFromPrevious describes travel from the PREVIOUS stop of the same day and must be present on every stop except the first, with plausible minutes, distanceMeters and cost per person in USD; give each leg exactly 2 options across different modes; fill opensAt and closesAt for anywhere with real opening hours and set lastEntryMinutesBeforeClose for museums, aquariums, towers and castles; order the stops geographically; estimatedCost is per person in USD; category must be one of sight, food, shopping, stay, transport, activity, other; include at least one food stop. Respond with ONLY a strict JSON object, no prose and no Markdown fences, omitting every id field.",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "summary": { "type": "STRING" },
+      "lodgingSuggestion": { "type": "STRING" },
+      "days": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "dayNumber": { "type": "INTEGER" },
+            "title": { "type": "STRING" },
+            "stops": {
+              "type": "ARRAY",
+              "items": {
+                "type": "OBJECT",
+                "properties": {
+                  "name": { "type": "STRING" },
+                  "category": { "type": "STRING", "enum": ["sight","food","shopping","stay","transport","activity","other"] },
+                  "startTime": { "type": "STRING" },
+                  "durationMinutes": { "type": "INTEGER" },
+                  "note": { "type": "STRING" },
+                  "address": { "type": "STRING" },
+                  "rating": { "type": "NUMBER" },
+                  "estimatedCost": { "type": "NUMBER" },
+                  "opensAt": { "type": "STRING" },
+                  "closesAt": { "type": "STRING" },
+                  "lastEntryMinutesBeforeClose": { "type": "INTEGER" },
+                  "legFromPrevious": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "mode": { "type": "STRING", "enum": ["walk","transit","drive","bike"] },
+                      "minutes": { "type": "INTEGER" },
+                      "distanceMeters": { "type": "INTEGER" },
+                      "cost": { "type": "NUMBER" },
+                      "transfers": { "type": "INTEGER" },
+                      "detail": { "type": "STRING" },
+                      "options": {
+                        "type": "ARRAY",
+                        "items": {
+                          "type": "OBJECT",
+                          "properties": {
+                            "mode": { "type": "STRING", "enum": ["walk","transit","drive","bike"] },
+                            "minutes": { "type": "INTEGER" },
+                            "distanceMeters": { "type": "INTEGER" },
+                            "cost": { "type": "NUMBER" }
+                          },
+                          "required": ["mode","minutes","distanceMeters","cost"]
+                        }
+                      }
+                    },
+                    "required": ["mode","minutes","distanceMeters","cost","options"]
+                  }
+                },
+                "required": ["name","category","startTime","durationMinutes","note","estimatedCost"]
+              }
+            }
+          },
+          "required": ["dayNumber","title","stops"]
+        }
+      }
+    },
+    "required": ["summary","lodgingSuggestion","days"]
+  }
+}

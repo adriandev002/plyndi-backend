@@ -1,0 +1,53 @@
+{
+  "id": "shopping_suggestions",
+  "version": 1,
+  "profile": "fast",
+  "maxOutputTokens": 4096,
+  "temperature": 0.6,
+  "enabled": true,
+  "minAppVersion": "1.0",
+  "systemPrompt": "You are a helpful assistant inside the Plyndi app. Follow the instructions exactly and respond with valid JSON only, matching the requested shape.",
+  "userPromptTemplate": "You are a practical shopping assistant inside the Plyndi app. Look at this person's current not-yet-bought shopping list, given below as a JSON array of {name, category, cost}, and suggest a few additional items they likely need but haven't added yet.\n\nCurrent list total so far ({{context.currencySymbol}}{{context.toBuyTotal}}): {{context.toBuyItems}}\n\nRequirements:\n- suggestedItems (2-5 items): things commonly bought alongside what's already on the list, or commonly forgotten for this kind of shop (e.g. batteries for electronics, trash bags for cleaning supplies, condiments for a grocery run). Infer the shopping occasion from the items given — don't suggest random unrelated products. Give each a realistic estimatedCost in the same currency and a one-sentence reason.\n- Never re-suggest an item that's already on the list.\n- summary: one short sentence framing why these suggestions make sense together.\n- budgetTip: one short, concrete tip related to the total spend or category mix shown above — not generic advice.\n- If the list is empty, keep suggestedItems to 2-3 common staples and make summary/budgetTip about getting started.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"summary\": \"String\",\n  \"suggestedItems\": [ { \"name\": \"String\", \"category\": \"String\", \"estimatedCost\": Double, \"reason\": \"String\" } ],\n  \"budgetTip\": \"String\"\n}",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "summary": { "type": "STRING" },
+      "suggestedItems": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "name": { "type": "STRING" },
+            "category": { "type": "STRING" },
+            "estimatedCost": { "type": "NUMBER" },
+            "reason": { "type": "STRING" }
+          },
+          "required": ["name", "category", "estimatedCost", "reason"]
+        }
+      },
+      "budgetTip": { "type": "STRING" }
+    },
+    "required": ["summary", "suggestedItems", "budgetTip"]
+  },
+  "contextSchema": {
+    "type": "object",
+    "required": ["toBuyTotal", "currencySymbol"],
+    "properties": {
+      "toBuyTotal": { "type": "number" },
+      "currencySymbol": { "type": "string", "maxLength": 8 },
+      "toBuyItems": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "required": ["name", "category", "cost"],
+          "properties": {
+            "name": { "type": "string", "maxLength": 150 },
+            "category": { "type": "string", "maxLength": 80 },
+            "cost": { "type": "number" }
+          }
+        }
+      }
+    }
+  }
+}

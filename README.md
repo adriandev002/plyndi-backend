@@ -14,6 +14,7 @@ would have sent straight to Google/OpenAI; this just injects the real key and fo
 - `POST /v1/openai/chat/completions` → OpenAI's Chat Completions API
 - `POST /v1/places/autocomplete`, `POST /v1/places/search` → Google Places API (New)
 - `GET /v1/config` → the Phase 0 AI Hub kill switch / version gate (see below)
+- `POST /v1/ai/run`, `GET /v1/ai/runs` → the Phase 1-A AI Hub capability registry (see below)
 
 Every request (except `/healthz`) must carry an `X-Plyndi-Client-Key` header matching
 `CLIENT_SHARED_KEY` — see `src/middleware/auth.js` for what that does and doesn't protect
@@ -144,6 +145,87 @@ covering the version gate, ETag/304, SIGHUP reload, and the corrupted-file fallb
 
 **Before shipping**: `updateUrl` in `src/config/remote-config.json` is still a placeholder — it
 must be replaced with the real App Store link before this is relied on for a forced update.
+
+## AI Hub capability registry (Phase 1-A)
+
+`POST /v1/ai/run` moves AI *content* — prompts, JSON schemas, token budgets — out of the Swift
+binary and into `capabilities/*.json` on the backend, so fixing a bad prompt or a token-budget bug
+is a 30-second server edit instead of an App Store release. The client sends a capability id and a
+context object; it never sends a prompt, a schema, or a model name.
+
+```
+POST /v1/ai/run
+{ capabilityId, contextVersion, context, idempotencyKey, locale }
+→ { runId, status, result, provider, model, latencyMs, capabilityVersion }
+
+GET /v1/ai/runs?limit=&cursor=
+→ { runs: [...], nextCursor }
+```
+
+- **Capability ids are frozen and shared with `remote-config.json`'s feature flags** — they must
+  never be renamed: `budget_insights`, `daily_plan`, `shopping_suggestions`, `quick_add_parse`,
+  `receipt_scan`, `trip_itinerary_day`, `workout_plan`, `form_coach`, `readiness` (`ai_hub` is an
+  umbrella switch in `remote-config.json`, not a capability — it has no file here). Renaming one
+  costs an App Store release the same way a `remote-config.json` feature id would.
+- **Registry**: `src/lib/capabilityRegistry.js` loads `capabilities/*.json` at boot, caches in
+  memory, and reloads on `kill -HUP <pid>` — the exact same pattern `src/routes/config.js` already
+  established for `remote-config.json`. A capability file that fails validation (wrong id, missing
+  field, bad `profile`/`maxOutputTokens`) is **skipped with a loud log**, never a boot failure —
+  one bad file can't take the other eight down with it.
+- **Provider seam**: the model-chain/circuit-breaker/schema-translation logic that used to live
+  directly in `src/routes/generate.js` is now `src/lib/providerGateway.js`, a plain module.
+  `POST /v1/generate` is a thin HTTP wrapper over it; `POST /v1/ai/run` calls
+  `providerGateway.generate()` **directly, in-process** — never a loopback HTTP call to
+  `/v1/generate` — so nothing here doubles latency, loses error detail, or breaks if the port or
+  auth ever changes. `generate()` takes an injectable `providers` map for tests; production callers
+  never pass it, so real traffic is unaffected.
+- **Request flow**: unknown capability → `404`; `enabled:false` or the caller's
+  `X-Plyndi-App-Version` below the capability's `minAppVersion` → `403` (version comparison reuses
+  `src/lib/semver.js`, numeric not lexical, same fail-open-on-unparseable rule as `/v1/config`);
+  `context` is validated against the capability's `contextSchema` and size-capped
+  (`AI_CONTEXT_MAX_BYTES`, default 20000 bytes) **before any provider call is made** — an invalid
+  or oversized context never spends provider quota; a repeated `idempotencyKey` returns the
+  previously-stored run instead of calling a provider again.
+- **Prompt rendering**: a capability's `userPromptTemplate` supports exactly one substitution
+  syntax, `{{context.<dot.path>}}`, and every substituted value is JSON-encoded before insertion
+  (see `src/lib/renderPromptTemplate.js`) — this is the actual prompt-injection defense, since
+  expense notes, task titles and trip preferences are user-controlled text. The `systemPrompt` is
+  never templated against `context` at all. One visible side effect: a plain string value shows up
+  quoted inside prose (e.g. `arriving from "Taipei"`) because the same uniform encoding rule
+  applies to every value, not just ones embedded in a JSON example block — a deliberate trade for
+  having one simple, auditable rule instead of per-field trust decisions.
+- **Errors** are mapped to a stable, non-technical code + HTTP status
+  (`unknown_capability`/404, `capability_disabled`/403, `app_update_required`/403,
+  `invalid_context`/400, `context_too_large`/400, `rate_limited`/429,
+  `provider_unavailable`/503, `invalid_provider_response`/502) — a provider's raw error message is
+  logged server-side and never echoed to the client.
+- **Response validation is deliberately shallow**: the route checks only that the provider's
+  output parsed as JSON and is an object. It does not deep-validate against the capability's
+  `jsonSchema` or require any particular field to be non-null — gating acceptance on a field a
+  later phase legitimately overwrites is exactly the bug that once emptied every itinerary in
+  production (a client required `legFromPrevious` on every stop while OpenAI's strict-schema mode
+  legitimately returned `null` for it).
+- **Run storage is temporary and in-memory** (`src/lib/runStore.js`) — Phase 3 replaces it with
+  Render Postgres; Render's own disk is not durable, so a file-backed store would be *worse* than
+  today's in-memory one, not a real fix. There is no per-user identity until Phase 3's JWT lands,
+  so every run is scoped under one coarse bucket for now — idempotency and `GET /v1/ai/runs` are
+  effectively per-deployment, not per-user, until then.
+- **Known gap, flagged rather than silently worked around**: `receipt_scan` and `form_coach` are
+  vision capabilities (they analyze a photo), but `providerGateway.generate()` only sends text
+  (`system`/`user` strings) to Gemini/OpenAI — there is no image parameter. Both capability files
+  are ported faithfully (prompt, schema, token budget, and a `contextSchema.imageBase64` field) and
+  pass registry validation and the generic request-gating tests, but an actual `imageBase64` value
+  sent today is validated and then **silently ignored** — the provider call proceeds on text alone.
+  Wiring an image path through `providerGateway` (and deciding `form_coach`'s original
+  single-provider/no-retry behavior vs. the generic multi-provider chain) is follow-up work, not
+  done in this phase; each file's `contextSchema.imageBase64.description` says so inline.
+
+Run `node scripts/test-ai-run.js` (or `npm test`, which also runs `scripts/test-config.js`) for the
+full smoke test: the `toOpenAISchema` before/after refactor diff, all nine capabilities loading, a
+malformed file being skipped without taking the others down, the version/enabled/context gates,
+idempotency, provider-failure error mapping, and a `/v1/generate` regression check — all against a
+real in-process HTTP server with the provider layer stubbed (this environment can't reach
+Gemini/OpenAI, and a suite that spends real money per run would be a bad suite regardless).
 
 ## Versioned sync backups
 

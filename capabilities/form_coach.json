@@ -1,0 +1,31 @@
+{
+  "id": "form_coach",
+  "version": 1,
+  "profile": "rich",
+  "maxOutputTokens": 4096,
+  "temperature": 0.2,
+  "enabled": true,
+  "minAppVersion": "1.0",
+  "systemPrompt": "You are a helpful assistant inside the Plyndi app. Follow the instructions exactly and respond with valid JSON only, matching the requested shape.",
+  "userPromptTemplate": "You are a certified personal trainer watching a live camera feed of someone doing {{context.exerciseName}}. Analyze their posture/form in this single frame for squat, pushup, lunge, or plank errors (whichever applies). Return ONE concise sentence of actionable, encouraging form correction — or brief praise if the form looks solid. Set riskLevel to \"risky\" only if there's a real injury risk (e.g. rounded back under load, knees caving in), \"minor\" for small technique issues, \"good\" if form looks fine.",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "tip": { "type": "STRING", "description": "One short spoken-length sentence." },
+      "riskLevel": { "type": "STRING", "enum": ["good", "minor", "risky"] }
+    },
+    "required": ["tip", "riskLevel"]
+  },
+  "contextSchema": {
+    "type": "object",
+    "required": ["exerciseName", "imageBase64"],
+    "properties": {
+      "exerciseName": { "type": "string", "maxLength": 80 },
+      "imageBase64": {
+        "type": "string",
+        "maxLength": 2000000,
+        "description": "Base64-encoded JPEG of the sampled camera frame. KNOWN GAP (see README/PR description): providerGateway.generate() is text-only in Phase 1-A — this field is validated but not yet forwarded to a vision-capable provider call. The original Swift service also called GeminiClient directly with no cross-provider fallback and maxAttempts:1; that single-provider, no-retry behavior is not replicated by the generic gateway either and would need its own follow-up decision."
+      }
+    }
+  }
+}

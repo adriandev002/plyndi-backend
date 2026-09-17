@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node scripts/test-config.js"
+    "test": "node scripts/test-config.js && node scripts/test-ai-run.js"
   },
   "engines": {
     "node": ">=18"
