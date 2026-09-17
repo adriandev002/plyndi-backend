@@ -5,12 +5,14 @@ const rateLimit = require('express-rate-limit');
 const requireClientKey = require('./middleware/auth');
 const sanitizeBody = require('./middleware/sanitize');
 const requestLog = require('./middleware/requestLog');
+const appContext = require('./middleware/appContext');
 
 const geminiRoute = require('./routes/gemini');
 const openaiRoute = require('./routes/openai');
 const generateRoute = require('./routes/generate');
 const placesRoute = require('./routes/places');
 const syncRoute = require('./routes/sync');
+const configRoute = require('./routes/config');
 const affiliateRoute = require('../routes/affiliateRoutes');
 
 const app = express();
@@ -21,6 +23,7 @@ app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '1mb' }));
 app.use(requestLog);
+app.use(appContext);
 
 // No auth or rate limit on the health check — Render's own health monitor hits this, and it
 // carries no client key.
@@ -34,9 +37,17 @@ const limiter = rateLimit({
   message: { error: 'Too many requests. Please try again later.' }
 });
 
-// Everything past this point needs the shared client key, is rate-limited per IP, and has its
-// request body sanitized — in that order — before any route handler (or upstream API) sees it.
 app.use(requireClientKey);
+
+// /v1/config is the kill switch itself, so it's mounted here — after the client-key check, but
+// ahead of the general-purpose limiter below — with its own, more generous rate limit (see
+// routes/config.js). A client must never be able to get itself locked out of finding out that a
+// feature has been disabled or an update is required.
+app.use('/v1/config', configRoute);
+
+// Everything past this point needs the shared client key (already applied above), is
+// rate-limited per IP, and has its request body sanitized — in that order — before any route
+// handler (or upstream API) sees it.
 app.use(limiter);
 app.use(sanitizeBody);
 

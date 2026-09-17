@@ -1,0 +1,22 @@
+{
+  "configVersion": 1,
+  "minSupportedVersion": "1.0.0",
+  "recommendedVersion": "1.0.0",
+  "updateUrl": "https://apps.apple.com/app/idPLACEHOLDER_REPLACE_WITH_REAL_APP_STORE_ID",
+  "features": {
+    "ai_hub": true,
+    "budget_insights": true,
+    "daily_plan": true,
+    "shopping_suggestions": true,
+    "quick_add_parse": true,
+    "receipt_scan": true,
+    "trip_itinerary_day": true,
+    "workout_plan": true,
+    "form_coach": true,
+    "readiness": true
+  },
+  "messages": {
+    "banner": null
+  },
+  "ttlSeconds": 900
+}
