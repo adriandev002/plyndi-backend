@@ -1,0 +1,198 @@
+{
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "lodgingSuggestion": {
+      "type": "string"
+    },
+    "days": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dayNumber": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "sight",
+                    "food",
+                    "shopping",
+                    "stay",
+                    "transport",
+                    "activity",
+                    "other"
+                  ]
+                },
+                "startTime": {
+                  "type": "string"
+                },
+                "durationMinutes": {
+                  "type": "integer"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rating": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "estimatedCost": {
+                  "type": "number"
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastEntryMinutesBeforeClose": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "legFromPrevious": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "walk",
+                        "transit",
+                        "drive",
+                        "bike"
+                      ]
+                    },
+                    "minutes": {
+                      "type": "integer"
+                    },
+                    "distanceMeters": {
+                      "type": "integer"
+                    },
+                    "cost": {
+                      "type": "number"
+                    },
+                    "transfers": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "walk",
+                              "transit",
+                              "drive",
+                              "bike"
+                            ]
+                          },
+                          "minutes": {
+                            "type": "integer"
+                          },
+                          "distanceMeters": {
+                            "type": "integer"
+                          },
+                          "cost": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "mode",
+                          "minutes",
+                          "distanceMeters",
+                          "cost"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "minutes",
+                    "distanceMeters",
+                    "cost",
+                    "transfers",
+                    "detail",
+                    "options"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "name",
+                "category",
+                "startTime",
+                "durationMinutes",
+                "note",
+                "address",
+                "rating",
+                "estimatedCost",
+                "opensAt",
+                "closesAt",
+                "lastEntryMinutesBeforeClose",
+                "legFromPrevious"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "dayNumber",
+          "title",
+          "stops"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "summary",
+    "lodgingSuggestion",
+    "days"
+  ],
+  "additionalProperties": false
+}

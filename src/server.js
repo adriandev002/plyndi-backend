@@ -13,6 +13,7 @@ const generateRoute = require('./routes/generate');
 const placesRoute = require('./routes/places');
 const syncRoute = require('./routes/sync');
 const configRoute = require('./routes/config');
+const aiRunRoute = require('./routes/aiRun');
 const affiliateRoute = require('../routes/affiliateRoutes');
 
 const app = express();
@@ -57,6 +58,8 @@ app.use('/v1/openai', openaiRoute);
 app.use('/v1/generate', generateRoute);
 app.use('/v1/places', placesRoute);
 app.use('/v1/sync', syncRoute);
+// Capability registry runner (Phase 1-A) — POST /v1/ai/run, GET /v1/ai/runs.
+app.use('/v1/ai', aiRunRoute);
 // Regional affiliate recommendations return all three provider options in one call.
 app.use('/api/v1/planner', affiliateRoute);
 app.use('/v1/planner', affiliateRoute);
@@ -74,7 +77,17 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Something went wrong.' });
 });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Plyndi backend listening on port ${port}`);
-});
+module.exports = app;
+
+// `require.main === module` is only true when this file is the process entry point (`npm start`,
+// `npm run dev`, or Render's own start command) — so listening stays exactly as before for every
+// real deployment. When a test script does `require('./server')` instead, it gets the bare `app`
+// with nothing listening yet, so it can call `app.listen(0)` itself on an ephemeral port in the
+// SAME process. That in-process listen is what lets a test monkey-patch providerGateway.generate
+// before making a real HTTP request — no child process, no network, no separate stub protocol.
+if (require.main === module) {
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`Plyndi backend listening on port ${port}`);
+  });
+}

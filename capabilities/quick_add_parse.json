@@ -1,0 +1,35 @@
+{
+  "id": "quick_add_parse",
+  "version": 1,
+  "profile": "fast",
+  "maxOutputTokens": 4096,
+  "temperature": 0.2,
+  "enabled": true,
+  "minAppVersion": "1.0",
+  "systemPrompt": "You are a helpful assistant inside the Plyndi app. Follow the instructions exactly and respond with valid JSON only, matching the requested shape.",
+  "userPromptTemplate": "You are the parser behind a \"Quick Add\" bar in the Plyndi personal-assistant app. Classify the user's one-line input into exactly one intent, then extract whatever fields apply to that intent. Return ONLY a strict JSON object — no prose, no explanation, no Markdown code fences — matching this exact shape:\n\n{\n  \"type\": \"expense\" | \"task\" | \"item\" | \"travel\",\n  \"title\": \"String — a short description for an expense, the task name, the shopping item name, or (for travel) a short trip summary\",\n  \"amount\": Double or null — the expense amount; null for task/item/travel,\n  \"category\": \"String\" or null — e.g. \"Food & Dining\", \"Health & Fitness\", \"Transport\"; only for expense/item, null otherwise,\n  \"date\": \"YYYY-MM-DD\" — always present. For expense this is the transaction date, for task the due date, for travel the trip start date. Resolve relative dates (\"today\", \"tomorrow\", \"next Friday\") against the reference date below; default to today if nothing is stated,\n  \"paymentMethod\": \"String\" or null — only for expense/item, and only if it matches one of the user's existing accounts listed below; null otherwise,\n  \"destination\": \"String\" or null — only for travel, the city/place being traveled to; null otherwise,\n  \"budget\": Double or null — only for travel, the trip's total budget; null otherwise\n}\n\nUser's text: {{context.text}}\n\nClassification guide:\n- \"expense\": spending or paying for something for personal consumption right now (e.g. \"Spent $30 on lunch\", \"Paid $50 for gas\").\n- \"item\": adding something to a shopping list for later (e.g. \"Add milk to my list\", \"Need to buy batteries\").\n- \"task\": a to-do, reminder, or chore with no purchase involved (e.g. \"Have to run tomorrow morning\", \"Call the dentist Friday\").\n- \"travel\": planning or mentioning a trip (e.g. \"Planning a trip to Tokyo\", \"Going to Paris next month with a $3000 budget\").\n- The Quick Add sheet is currently on the {{context.currentType}} segment — use this only as a weak hint; the wording of the text itself decides the type.\n\nContext:\n- Reference/today's date is {{context.todayISO}} (yyyy-MM-dd).\n- The user's existing payment accounts are: {{context.accountNames}}.\n\nRules:\n- Fill every field that applies to the classified type; set every field that doesn't apply to actual JSON null — never an empty string and never 0 as a stand-in for \"not applicable\".\n- Never invent a payment method that isn't in the accounts list above; if none is mentioned or none match, use null.\n- Respond with JSON only, matching the shape above exactly.",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "type": { "type": "STRING", "enum": ["expense", "task", "item", "travel"] },
+      "title": { "type": "STRING" },
+      "amount": { "type": "NUMBER" },
+      "category": { "type": "STRING" },
+      "date": { "type": "STRING" },
+      "paymentMethod": { "type": "STRING" },
+      "destination": { "type": "STRING" },
+      "budget": { "type": "NUMBER" }
+    },
+    "required": ["type", "title", "date"]
+  },
+  "contextSchema": {
+    "type": "object",
+    "required": ["text", "todayISO"],
+    "properties": {
+      "text": { "type": "string", "maxLength": 500 },
+      "todayISO": { "type": "string", "maxLength": 20 },
+      "currentType": { "type": "string", "maxLength": 20, "nullable": true },
+      "accountNames": { "type": "array", "maxItems": 50, "items": { "type": "string", "maxLength": 80 } }
+    }
+  }
+}

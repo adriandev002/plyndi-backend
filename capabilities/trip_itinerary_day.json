@@ -1,0 +1,191 @@
+{
+  "id": "trip_itinerary_day",
+  "version": 1,
+  "profile": "rich",
+  "maxOutputTokens": 12288,
+  "temperature": 0.65,
+  "enabled": true,
+  "minAppVersion": "1.0",
+  "systemPrompt": "You are a meticulous local travel planner inside the Plyndi app. You know real places, real opening hours and real public transport. Respond with valid JSON only, matching the requested shape exactly. Never invent a place that does not exist.",
+  "userPromptTemplate": "Generate ONLY day {{context.dayNumber}} of {{context.dayCount}} for a trip to {{context.destination}}.{{context.originLine}}\n{{context.dateLine}}\n{{context.lodgingLine}}\nParty: {{context.partyDescription}}. {{context.budgetLine}}\nPRICE GUIDANCE: {{context.priceGuidance}}\nPreferences: companion {{context.companion}}; pace {{context.pace}}; style {{context.interest}}; accommodation {{context.accommodation}}; {{context.earlyStartsText}}.\nWHAT THOSE PREFERENCES MEAN FOR THIS DAY:\n- {{context.companionGuidance}}\n- {{context.paceGuidance}}\n- {{context.interestGuidance}}\n{{context.notesLine}}\nUser-facing summary, day title, stop notes, saved-place notes, packing names and packing categories must be written in {{context.responseLanguage}}. Preserve official place names.\n\n{{context.zoneLine}}\nStops already used on other days or already in this trip: {{context.usedStopNames}}\nDo not repeat any of them. Cluster this day geographically and include at least one food stop.\n{{context.extrasLine}}\n{{context.retryLine}}\n\nMEALS — separate from the stops list. Return 3 to 5 entries in \"meals\": breakfast, lunch and dinner are all required, plus 0-2 snack/drink entries. Each meal's perPersonCost is a real price for its named venueType, per person, in {{context.pricingCurrencyCode}} — never the same number twice unless two meals genuinely cost the same. If a meal happens at one of this day's stops (e.g. a food stop is where lunch happens), set relatedStopName to that stop's exact name so the two are never double-counted; leave it empty otherwise. A food-category stop's own estimatedCost must be 0 — its price belongs in the matching meal, not on the stop.\n\nRIDES — separate from each stop's legFromPrevious. Return every ride that actually happens this day in \"rides\", covering the WHOLE day: lodging to the first stop, every ride between stops, AND the last stop back to lodging — not only the gaps legFromPrevious already covers. A walking ride has fare 0. A train/subway/bus fare is per person (isPerPerson true); a taxi/rideshare fare is per vehicle regardless of party size (isPerPerson false). Use real local fares for the named mode — never reuse one fare for the whole day. If this destination has a one-day transit pass that would be cheaper than the summed per-ride fares, set dayPassFare to its real per-person price; otherwise set dayPassFare to 0.\n\nHARD REQUIREMENTS:\n- Return exactly one days entry and set dayNumber to {{context.dayNumber}}.\n- Every stop must be a real place in {{context.destination}}, with a real address and realistic time, duration, rating and opening hours where known.\n- For a stop that charges admission, set estimatedCost to its real per-person price. For a stop that is genuinely free to enter, set isFreeAdmission true and estimatedCost 0. For a stop whose price you do not actually know, set isPriceUnknown true and estimatedCost 0 — never use 0 alone to mean \"I don't know\".\n- Price EVERYTHING in {{context.pricingCurrencyCode}} and set \"costCurrencyCode\" to {{context.pricingCurrencyCode}}. Never convert to another currency yourself.\n- lodgingSuggestion must contain the property name only. Do not include parentheses, star ratings, comfort descriptors or a sentence.\n- The first stop must omit legFromPrevious. EVERY stop after the first MUST include legFromPrevious with positive minutes and distanceMeters, plus exactly 2 mode options: the chosen mode and one realistic alternative. Never return a later stop without a leg. (legFromPrevious is for scheduling/arrival-time only — it is separate from the \"rides\" list above, which is what the Budget tab reads.)\n- Keep every note and title to one short sentence. Brevity matters — an answer cut off before the JSON closes is unusable.\n- Order stops geographically. startTime is 24-hour HH:mm. category is sight, food, shopping, stay, transport, activity or other.\n\nReturn strict JSON only in this shape:\n{\n  \"summary\": \"String\",\n  \"costCurrencyCode\": {{context.pricingCurrencyCode}},\n  \"lodgingSuggestion\": \"String\",\n  \"days\": [{\n    \"dayNumber\": {{context.dayNumber}}, \"title\": \"String\", \"stops\": [{\n      \"name\": \"String\", \"category\": \"sight\", \"startTime\": \"10:00\", \"durationMinutes\": 90,\n      \"note\": \"String\", \"address\": \"String\", \"rating\": 4.6, \"estimatedCost\": 600,\n      \"isFreeAdmission\": false, \"isPriceUnknown\": false,\n      \"opensAt\": \"09:00\", \"closesAt\": \"17:00\", \"lastEntryMinutesBeforeClose\": 60,\n      \"legFromPrevious\": {\"mode\":\"transit\",\"minutes\":24,\"distanceMeters\":4100,\"cost\":280,\"transfers\":1,\"detail\":\"String\",\"options\":[{\"mode\":\"walk\",\"minutes\":58,\"distanceMeters\":4100,\"cost\":0,\"transfers\":0,\"detail\":\"\"}]}\n    }],\n    \"meals\": [\n      {\"kind\":\"breakfast\",\"venueType\":\"convenience store\",\"perPersonCost\":500,\"note\":\"String\",\"relatedStopName\":\"\"},\n      {\"kind\":\"lunch\",\"venueType\":\"ramen counter\",\"perPersonCost\":950,\"note\":\"String\",\"relatedStopName\":\"String\"},\n      {\"kind\":\"dinner\",\"venueType\":\"izakaya\",\"perPersonCost\":2200,\"note\":\"String\",\"relatedStopName\":\"\"}\n    ],\n    \"rides\": [\n      {\"from\":\"Lodging\",\"to\":\"First stop name\",\"mode\":\"transit\",\"fare\":250,\"isPerPerson\":true,\"note\":\"String\"},\n      {\"from\":\"Last stop name\",\"to\":\"Lodging\",\"mode\":\"transit\",\"fare\":260,\"isPerPerson\":true,\"note\":\"String\"}\n    ],\n    \"dayPassFare\": 0\n  }],\n  \"savedPlaces\": [{\"name\":\"String\",\"category\":\"food\",\"note\":\"String\",\"estimatedCost\":0,\"rating\":4.4}],\n  \"packingItems\": [{\"name\":\"String\",\"category\":\"String\",\"needToBuy\":false}]\n}",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "summary": { "type": "STRING" },
+      "costCurrencyCode": {
+        "type": "STRING",
+        "description": "ISO 4217 code of the currency EVERY estimatedCost and leg cost in this response is quoted in. Required — the app converts from it."
+      },
+      "lodgingSuggestion": { "type": "STRING" },
+      "days": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "dayNumber": { "type": "INTEGER" },
+            "title": { "type": "STRING" },
+            "stops": {
+              "type": "ARRAY",
+              "items": {
+                "type": "OBJECT",
+                "properties": {
+                  "name": { "type": "STRING" },
+                  "category": { "type": "STRING", "enum": ["sight", "food", "shopping", "stay", "transport", "activity", "other"] },
+                  "startTime": { "type": "STRING", "description": "24-hour HH:mm" },
+                  "durationMinutes": { "type": "INTEGER" },
+                  "note": { "type": "STRING" },
+                  "address": { "type": "STRING" },
+                  "rating": { "type": "NUMBER" },
+                  "estimatedCost": {
+                    "type": "NUMBER",
+                    "description": "Per person, in the trip currency. Always 0 for a food-category stop — its price belongs in the day's meals array instead."
+                  },
+                  "isFreeAdmission": { "type": "BOOLEAN", "description": "true only if this stop is genuinely free to enter." },
+                  "isPriceUnknown": {
+                    "type": "BOOLEAN",
+                    "description": "true if you do not actually know this stop's admission price. Never use estimatedCost 0 alone to mean unknown."
+                  },
+                  "opensAt": { "type": "STRING" },
+                  "closesAt": { "type": "STRING" },
+                  "lastEntryMinutesBeforeClose": { "type": "INTEGER" },
+                  "legFromPrevious": {
+                    "type": "OBJECT",
+                    "description": "How to travel from the previous stop of the same day to this one. Omitted on the first stop of each day.",
+                    "properties": {
+                      "mode": { "type": "STRING", "enum": ["walk", "transit", "drive", "bike"] },
+                      "minutes": { "type": "INTEGER" },
+                      "distanceMeters": { "type": "INTEGER" },
+                      "cost": { "type": "NUMBER", "description": "Per person, in the trip currency. 0 for walking." },
+                      "transfers": { "type": "INTEGER" },
+                      "detail": { "type": "STRING" },
+                      "options": {
+                        "type": "ARRAY",
+                        "items": {
+                          "type": "OBJECT",
+                          "properties": {
+                            "mode": { "type": "STRING", "enum": ["walk", "transit", "drive", "bike"] },
+                            "minutes": { "type": "INTEGER" },
+                            "distanceMeters": { "type": "INTEGER" },
+                            "cost": { "type": "NUMBER" },
+                            "transfers": { "type": "INTEGER" },
+                            "detail": { "type": "STRING" }
+                          },
+                          "required": ["mode", "minutes", "distanceMeters", "cost"]
+                        }
+                      }
+                    },
+                    "required": ["mode", "minutes", "distanceMeters", "cost", "options"]
+                  }
+                },
+                "required": ["name", "category", "startTime", "durationMinutes", "note", "estimatedCost", "isFreeAdmission", "isPriceUnknown"]
+              }
+            },
+            "meals": {
+              "type": "ARRAY",
+              "description": "One priced meal or snack. Every day needs breakfast, lunch and dinner plus 0-2 snacks/drinks.",
+              "items": {
+                "type": "OBJECT",
+                "properties": {
+                  "kind": { "type": "STRING", "enum": ["breakfast", "lunch", "dinner", "snack"] },
+                  "venueType": { "type": "STRING", "description": "The kind of place, e.g. \"convenience store\", \"ramen counter\", \"izakaya\"." },
+                  "perPersonCost": {
+                    "type": "NUMBER",
+                    "description": "Per person, in the trip currency. A real price for the named venue type in this destination — never a placeholder."
+                  },
+                  "note": { "type": "STRING" },
+                  "relatedStopName": { "type": "STRING", "description": "Exact name of the itinerary stop this meal happens at, if any. Empty string otherwise." }
+                },
+                "required": ["kind", "venueType", "perPersonCost", "note", "relatedStopName"]
+              }
+            },
+            "rides": {
+              "type": "ARRAY",
+              "description": "One ride covering part of the day's ground transport, including lodging to the first stop and the last stop back to lodging.",
+              "items": {
+                "type": "OBJECT",
+                "properties": {
+                  "from": { "type": "STRING" },
+                  "to": { "type": "STRING" },
+                  "mode": { "type": "STRING", "enum": ["walk", "transit", "drive", "bike"] },
+                  "fare": { "type": "NUMBER", "description": "Real local fare for this mode, in the trip currency. 0 for walking." },
+                  "isPerPerson": {
+                    "type": "BOOLEAN",
+                    "description": "true for a fare charged per rider (train, subway, bus). false for a fare charged per vehicle (taxi, rideshare)."
+                  },
+                  "note": { "type": "STRING" }
+                },
+                "required": ["from", "to", "mode", "fare", "isPerPerson", "note"]
+              }
+            },
+            "dayPassFare": {
+              "type": "NUMBER",
+              "description": "Per-person cost of a local all-day transit pass, only if one exists and is cheaper than the summed ride fares. 0 if none applies."
+            }
+          },
+          "required": ["dayNumber", "title", "stops", "meals", "rides", "dayPassFare"]
+        }
+      },
+      "savedPlaces": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "name": { "type": "STRING" },
+            "category": { "type": "STRING", "enum": ["sight", "food", "shopping", "stay", "transport", "activity", "other"] },
+            "note": { "type": "STRING" },
+            "estimatedCost": { "type": "NUMBER" },
+            "rating": { "type": "NUMBER" }
+          },
+          "required": ["name", "category", "note"]
+        }
+      },
+      "packingItems": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "name": { "type": "STRING" },
+            "category": { "type": "STRING" },
+            "needToBuy": { "type": "BOOLEAN" }
+          },
+          "required": ["name", "category", "needToBuy"]
+        }
+      }
+    },
+    "required": ["days", "costCurrencyCode"]
+  },
+  "contextSchema": {
+    "type": "object",
+    "required": [
+      "dayNumber", "dayCount", "destination", "pricingCurrencyCode", "companion", "pace", "interest",
+      "accommodation", "responseLanguage", "partyDescription", "budgetLine", "priceGuidance",
+      "earlyStartsText", "companionGuidance", "paceGuidance", "interestGuidance", "usedStopNames", "extrasLine"
+    ],
+    "properties": {
+      "dayNumber": { "type": "integer" },
+      "dayCount": { "type": "integer" },
+      "destination": { "type": "string", "maxLength": 200 },
+      "pricingCurrencyCode": { "type": "string", "maxLength": 10 },
+      "companion": { "type": "string", "maxLength": 40 },
+      "pace": { "type": "string", "maxLength": 40 },
+      "interest": { "type": "string", "maxLength": 40 },
+      "accommodation": { "type": "string", "maxLength": 40 },
+      "responseLanguage": { "type": "string", "maxLength": 60 },
+      "partyDescription": { "type": "string", "maxLength": 300 },
+      "budgetLine": { "type": "string", "maxLength": 300 },
+      "priceGuidance": { "type": "string", "maxLength": 800 },
+      "earlyStartsText": { "type": "string", "maxLength": 60 },
+      "companionGuidance": { "type": "string", "maxLength": 400 },
+      "paceGuidance": { "type": "string", "maxLength": 400 },
+      "interestGuidance": { "type": "string", "maxLength": 400 },
+      "usedStopNames": { "type": "string", "maxLength": 4000 },
+      "extrasLine": { "type": "string", "maxLength": 400 },
+      "originLine": { "type": "string", "maxLength": 300, "nullable": true },
+      "dateLine": { "type": "string", "maxLength": 300, "nullable": true },
+      "lodgingLine": { "type": "string", "maxLength": 300, "nullable": true },
+      "notesLine": { "type": "string", "maxLength": 600, "nullable": true },
+      "zoneLine": { "type": "string", "maxLength": 600, "nullable": true },
+      "retryLine": { "type": "string", "maxLength": 600, "nullable": true }
+    }
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "id": "budget_insights",
+  "version": 1,
+  "profile": "fast",
+  "maxOutputTokens": 4096,
+  "temperature": 0.5,
+  "enabled": true,
+  "minAppVersion": "1.0",
+  "systemPrompt": "You are Plyndi, a friendly, concise, modern B2C money assistant similar to Mint or Copilot. Be warm, practical, encouraging, and easy to understand. Use plain everyday language, not accounting or finance-industry jargon. Follow the user prompt exactly and respond with valid JSON only, matching the requested shape.\n\nTerminology rules are strict. Never use these accounting terms in any user-facing text:\n- Say \"Money Owed to You\", never \"Receivables\".\n- Say \"Upcoming Bills & Debts\", never \"Payables\", \"Outstanding Payables\", or \"Outstanding Debts\".\n- Say \"Available Cash\", never \"Cash Balance\" or \"Cash in Hand\".\n- Say \"Money In / Money Out\", never \"Net Flow\" or \"Cash Flow\".\nRewrite any internal field labels into these friendly terms before returning JSON.",
+  "userPromptTemplate": "You are a friendly, practical personal finance coach inside the Plyndi app. Analyze this person's current-month financial snapshot and respond with actionable, encouraging guidance \u2014 never alarmist, never preachy.\n\n- Net worth (assets minus what they owe): {{context.currencySymbol}}{{context.netTotal}}\n- Available Cash across all accounts: {{context.currencySymbol}}{{context.cashInHand}}\n- Money Owed to You: {{context.currencySymbol}}{{context.outstandingReceivables}}\n- Upcoming Bills & Debts: {{context.currencySymbol}}{{context.outstandingPayables}}\n- Income logged this month: {{context.currencySymbol}}{{context.totalIncomeThisMonth}}\n- Spending by category this month, as a JSON array of {category, amount}: {{context.currentMonthCategorySpend}}\n- Individual transactions this month, as a JSON array of {category, amount, date, note}: {{context.currentMonthTransactions}}\n- Active subscriptions already included in expenses, as a JSON array of {name, category, amount, nextDueDate}: {{context.activeSubscriptions}}\n- Category budgets, as a JSON array of {category, limit}: {{context.categoryBudgets}}\n- User's focus question, if any (null if none): {{context.focusQuestion}}\n\nRequirements:\n- Write every text value (overallAssessment, each insight, each suggestion's reason, each savingsTip) entirely in the language identified by locale {{context.locale}}. If locale is null, respond in English. The one exception is \"category\" in each suggestion: copy it back exactly as it appears in the spending data above \u2014 never translate or rephrase it, since the app matches it against the user's own category text.\n- overallAssessment: 1-2 sentences, plain language, no jargon.\n- insights (2-4 items): specific observations about spending concentration, category trends, or Money Owed to You / Upcoming Bills & Debts \u2014 cite the actual numbers/categories given above, don't invent data that wasn't provided.\n- suggestions (2-4 items): a realistic recommended monthly budget amount per category that's worth capping or watching, with a one-sentence reason each. Only suggest categories that actually appear in the spending data above.\n- savingsTips (2-3 items): short, concrete, achievable actions \u2014 not generic advice like \"spend less.\"\n- If there is no spending data at all, keep insights/suggestions minimal and focus overallAssessment + savingsTips on getting started with tracking.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"overallAssessment\": \"String\",\n  \"insights\": [ { \"text\": \"String\" } ],\n  \"suggestions\": [ { \"category\": \"String\", \"recommendedMonthlyAmount\": Double, \"reason\": \"String\" } ],\n  \"savingsTips\": [ \"String\" ]\n}",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "overallAssessment": {
+        "type": "STRING"
+      },
+      "insights": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "text": {
+              "type": "STRING"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      "suggestions": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "category": {
+              "type": "STRING"
+            },
+            "recommendedMonthlyAmount": {
+              "type": "NUMBER"
+            },
+            "reason": {
+              "type": "STRING"
+            }
+          },
+          "required": [
+            "category",
+            "recommendedMonthlyAmount",
+            "reason"
+          ]
+        }
+      },
+      "savingsTips": {
+        "type": "ARRAY",
+        "items": {
+          "type": "STRING"
+        }
+      }
+    },
+    "required": [
+      "overallAssessment",
+      "insights",
+      "suggestions",
+      "savingsTips"
+    ]
+  },
+  "contextSchema": {
+    "type": "object",
+    "required": [
+      "netTotal",
+      "cashInHand",
+      "outstandingReceivables",
+      "outstandingPayables",
+      "currentMonthCategorySpend",
+      "totalIncomeThisMonth",
+      "currencySymbol"
+    ],
+    "properties": {
+      "netTotal": {
+        "type": "number"
+      },
+      "cashInHand": {
+        "type": "number"
+      },
+      "outstandingReceivables": {
+        "type": "number"
+      },
+      "outstandingPayables": {
+        "type": "number"
+      },
+      "totalIncomeThisMonth": {
+        "type": "number"
+      },
+      "currencySymbol": {
+        "type": "string",
+        "maxLength": 8
+      },
+      "focusQuestion": {
+        "type": "string",
+        "maxLength": 300,
+        "nullable": true
+      },
+      "currentMonthCategorySpend": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "required": [
+            "category",
+            "amount"
+          ],
+          "properties": {
+            "category": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "amount": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "currentMonthTransactions": {
+        "type": "array",
+        "maxItems": 300,
+        "items": {
+          "type": "object",
+          "required": [
+            "category",
+            "amount",
+            "date",
+            "note"
+          ],
+          "properties": {
+            "category": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "amount": {
+              "type": "number"
+            },
+            "date": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "activeSubscriptions": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "required": [
+            "name",
+            "category",
+            "amount",
+            "nextDueDate"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "category": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "amount": {
+              "type": "number"
+            },
+            "nextDueDate": {
+              "type": "string",
+              "maxLength": 40
+            }
+          }
+        }
+      },
+      "categoryBudgets": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "required": [
+            "category",
+            "limit"
+          ],
+          "properties": {
+            "category": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "limit": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  }
+}
