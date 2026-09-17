@@ -13,6 +13,7 @@ would have sent straight to Google/OpenAI; this just injects the real key and fo
 - `POST /v1/gemini/:model/generate` → Google's Generative Language API
 - `POST /v1/openai/chat/completions` → OpenAI's Chat Completions API
 - `POST /v1/places/autocomplete`, `POST /v1/places/search` → Google Places API (New)
+- `GET /v1/config` → the Phase 0 AI Hub kill switch / version gate (see below)
 
 Every request (except `/healthz`) must carry an `X-Plyndi-Client-Key` header matching
 `CLIENT_SHARED_KEY` — see `src/middleware/auth.js` for what that does and doesn't protect
@@ -105,6 +106,44 @@ runtime Settings field.
 If usage ever outgrows a single $5/mo instance, moving to AWS/GCP only means redeploying this
 same Express app somewhere else and updating the base URL both apps call — nothing about the
 routes, sanitization, or auth changes, since none of it is Render-specific.
+
+## Remote config: kill switch + version gate (Phase 0 AI Hub)
+
+`GET /v1/config` is the single source of truth for the iOS app's `RemoteConfigService`/
+`RemoteConfig` (and, later, the Android and Phase 1 clients). It lets per-feature kill switches
+and a minimum-app-version gate be flipped from the server, with no App Store release. The client
+fails open on every error (no network, malformed response, `GatewayConfig` not configured) — this
+endpoint exists to make that graceful default the exception, not the norm.
+
+- **Payload** lives in `src/config/remote-config.json`, loaded into memory at boot and cached
+  there. Edit the file on the host and send `kill -HUP <pid>` to reload it into the running
+  process — no restart or redeploy needed. Every load (success or failure) is logged.
+- **If the file is missing or malformed**, the server logs it loudly and serves a hardcoded
+  permissive default (everything enabled, `minSupportedVersion "0.0.0"`) instead of failing the
+  request — a broken config file must never brick the app fleet.
+- **`updateRequired`/`updateRecommended` are computed per request** from the caller's
+  `X-Plyndi-App-Version` header against `minSupportedVersion`/`recommendedVersion` — the client
+  does no version comparison of its own. Version comparison is numeric, segment by segment (see
+  `src/lib/semver.js`), not a string/lexical compare — `"1.10.0"` is *newer* than `"1.9.0"`, even
+  though it sorts before it as a string. A missing or unparseable version header always resolves
+  to `updateRequired: false` (fail open).
+- **Feature ids are shared with the Phase 1 capability registry and must not be renamed**:
+  `ai_hub` (umbrella switch), `budget_insights`, `daily_plan`, `shopping_suggestions`,
+  `quick_add_parse`, `receipt_scan`, `trip_itinerary_day`, `workout_plan`, `form_coach`,
+  `readiness`. These are already hardcoded at 20+ call sites in the shipping iOS app.
+- **Caching**: responds with an `ETag` and honors `If-None-Match` with `304`. `Cache-Control` is
+  `no-cache` (revalidate every time), not a `max-age` — the iOS client already runs its own
+  `ttlSeconds` disk cache, so an HTTP `max-age` would stack a second, invisible staleness layer on
+  top of it and could hide an urgent kill-switch flip inside `URLSession`'s cache.
+- **Rate limiting**: this route has its own, more generous limiter and sits outside the general
+  `RATE_LIMIT_MAX`/`RATE_LIMIT_WINDOW_MINUTES` limiter in `src/server.js` — a client must never be
+  throttled out of finding out that a feature was disabled or an update is required.
+
+Run `node scripts/test-config.js` for a full smoke test (comparator table + a real server boot
+covering the version gate, ETag/304, SIGHUP reload, and the corrupted-file fallback).
+
+**Before shipping**: `updateUrl` in `src/config/remote-config.json` is still a placeholder — it
+must be replaced with the real App Store link before this is relied on for a forced update.
 
 ## Versioned sync backups
 
