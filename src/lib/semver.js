@@ -5,9 +5,12 @@
 function parseVersion(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
-  const match = trimmed.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  // Accepts "1", "1.0" and "1.0.0". The app's MARKETING_VERSION is currently "1.0",
+  // and an X.Y.Z-only pattern makes every comparison null — which fails open and
+  // silently disables the version gate entirely.
+  const match = trimmed.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?$/);
   if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  return [Number(match[1]), Number(match[2] || 0), Number(match[3] || 0)];
 }
 
 // Returns -1 / 0 / 1 the usual way, or `null` when either side can't be parsed as X.Y.Z — the
