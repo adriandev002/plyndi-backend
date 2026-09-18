@@ -105,7 +105,13 @@ async function main() {
 
   console.log('\ncapabilities/ ids                 remote-config.json feature ids');
   const remoteConfig = require('../src/config/remote-config.json');
-  const configIds = Object.keys(remoteConfig.features).filter((k) => k !== 'ai_hub').sort();
+  // Phase 4-A: remote-config.json also carries a `daily_brief` feature id (its kill switch) even
+  // though capabilityRegistry.js deliberately never loads capabilities/daily_brief.json — see
+  // that file's header comment for why (it must not become reachable through the generic
+  // POST /v1/ai/run). Excluded here for the same reason `ai_hub` (the umbrella switch, also not a
+  // capability file) already was, so this stays a check of the nine registry-loaded ids
+  // specifically, not a full-catalog diff.
+  const configIds = Object.keys(remoteConfig.features).filter((k) => k !== 'ai_hub' && k !== 'daily_brief').sort();
   for (let i = 0; i < Math.max(loadedIds.length, configIds.length); i += 1) {
     console.log(`  ${(loadedIds[i] || '').padEnd(28)} ${configIds[i] || ''}`);
   }

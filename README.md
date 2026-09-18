@@ -17,6 +17,7 @@ would have sent straight to Google/OpenAI; this just injects the real key and fo
 - `POST /v1/ai/run`, `GET /v1/ai/runs` → the Phase 1-A AI Hub capability registry (see below)
 - `GET /v1/ai/hub` → the Phase 2-A server-driven AI Hub catalog (see below)
 - `GET /v1/ai/entitlement` → the Phase 3-A credits meter (see below)
+- `POST /v1/ai/brief/digest`, `GET /v1/ai/brief` → the Phase 4-A Daily Brief (see below)
 
 Every request (except `/healthz`) must carry an `X-Plyndi-Client-Key` header matching
 `CLIENT_SHARED_KEY` — see `src/middleware/auth.js` for what that does and doesn't protect
@@ -630,6 +631,215 @@ Not part of this repo. The next iOS phase needs to:
 - Handle `402 credits_exhausted` (once `AI_CREDITS_ENFORCE` is eventually flipped on) and `429
   daily_capacity_reached` with real user-facing copy — neither exists in the app today because
   neither could happen before this phase.
+
+## Daily Brief (Phase 4-A)
+
+One short server-generated paragraph per user per day, stitching their modules together —
+"You're NT$2,400 over pace on dining this month. 3 tasks due today, one overdue. Your Osaka trip
+starts in 9 days — 4 packing items still unchecked." Every other AI Hub feature waits to be asked;
+this one arrives. Two constraints shape the whole design (Plyndi-AI-Hub-Design.md §3.1):
+
+1. **The server cannot read the user's data.** Everything lives on-device; `/v1/sync` has zero
+   call sites. The app POSTs a small digest and the server generates from that alone. No digest is
+   a normal state (`204`), not an error.
+2. **One provider call per user per day, cached.** A brief regenerated on every app open would
+   cost more than every other capability combined — the cache key IS the feature's economics.
+
+```
+POST /v1/ai/brief/digest
+{ localDate, timeZone, digest }
+→ 200 { stored: true, localDate }
+
+GET /v1/ai/brief?localDate=YYYY-MM-DD
+→ 200 { brief, localDate, generatedAt, cached, provider, model }
+→ 204 (empty body) — no digest posted yet for this (subject, localDate); the normal first-run state
+→ 400 { error: "invalid_local_date" | "invalid_time_zone" | "invalid_context" | "context_too_large" }
+→ 403 { error: "capability_disabled" | "app_update_required" }
+→ 429 { error: "daily_capacity_reached" | "rate_limited" }
+→ 502 { error: "invalid_provider_response" }
+→ 503 { error: "service_unavailable" | "provider_unavailable" }
+```
+
+`POST /v1/ai/brief/digest` **only ever stores** — it never calls a provider, so a background
+sync the user never sees the result of can never cost money. `GET /v1/ai/brief` is the only path
+that generates, and only the first time it's called for a given `(subject, localDate)`; every
+call after that (same day) returns the cached row with `cached: true` and no provider call.
+
+### The digest — exact field names Phase 4-B (iOS) must build against
+
+`digest` is validated against `capabilities/daily_brief.json`'s `contextSchema` — every field is
+optional (a user with no trips and no overdue tasks still gets a brief, an honest one):
+
+```jsonc
+{
+  "locale": "zh-Hant",                          // optional; null/absent -> the brief is in English
+  "spend": {                                     // optional; omit entirely if unknown
+    "status": "over",                            // "over" | "under" | "onPace"
+    "amount": 2400,                               // in the given currency
+    "currencySymbol": "NT$",
+    "category": "dining"                          // null/absent if it's an overall total, not one category
+  },
+  "tasks": { "dueTodayCount": 3, "overdueCount": 1 },   // optional
+  "trip": { "name": "Osaka", "daysUntil": 9 },          // optional; omit if no upcoming trip
+  "packing": { "uncheckedCount": 4 }                    // optional
+}
+```
+
+`locale` lives **inside** `digest`, not as a sibling of `localDate`/`timeZone` — this is what lets
+`GET /v1/ai/brief` stay a plain `?localDate=` lookup with no separate locale parameter: the locale
+that was current when the digest was posted is the locale the brief gets generated in. Every
+field the model is told about explicitly allows `null`; the prompt is instructed to omit any
+topic that's entirely null rather than invent or pad around it, and to respond with a single
+honest, neutral line (never invented praise) when the whole digest is empty.
+
+### "Today" is the USER's day, never UTC
+
+The client sends its own `localDate` (`YYYY-MM-DD`) and `timeZone` (IANA, e.g. `Asia/Taipei`) —
+**the cache key `src/lib/store/*.js`'s `saveBrief`/`getBrief` use is `(subject, localDate)`
+alone**, not UTC. A brief cached under a UTC date would arrive at 8am in Taipei (UTC+8) labelled
+with yesterday's numbers, and would regenerate mid-morning when UTC rolls over — `timeZone` is
+validated (a real IANA zone, via `Intl.DateTimeFormat`) but is informational only, not part of the
+key. `localDate` is validated strictly (`^\d{4}-\d{2}-\d{2}$`, and a real calendar date — a
+syntactically-shaped but impossible date like `2026-02-30` is rejected) and refused if it's more
+than **2 days** from the server's own UTC date (`src/routes/aiBrief.js`'s
+`LOCAL_DATE_TOLERANCE_DAYS`) — wide enough to cover every real UTC offset, narrow enough that a
+bad or hostile client can't mint unlimited cache entries and, through them, unlimited attempted
+provider calls.
+
+### Free to the user, NOT free to us
+
+`capabilities/daily_brief.json`'s `creditCost` is `0` — the brief is free for every user
+(Plyndi-AI-Hub-Design.md §6), so it never draws down a subject's monthly allowance
+(`AI_MONTHLY_CREDIT_ALLOWANCE`). But a generation is still a real provider call, so it must count
+toward the **global daily spend cap** (`AI_DAILY_CREDIT_CAP`) exactly like every other capability.
+This is the one thing in this phase that's easy to get backwards, so it's implemented as two
+separate, deliberately-named fields and one ledger flag, not one field doing double duty:
+
+- **`creditCost` (0)** — what `POST /v1/ai/run` would charge a subject's monthly allowance. Never
+  read for billing purposes here, because...
+- **daily_brief is never routed through `POST /v1/ai/run` at all.** `src/lib/capabilityRegistry.js`
+  deliberately does not load `capabilities/daily_brief.json` — see that file's header comment. If
+  it were loaded there, `POST /v1/ai/run` would happily accept `capabilityId: "daily_brief"` and
+  charge/cap it by `creditCost`, which is `0` — meaning **neither** the per-subject allowance
+  **nor** the global cap check (`spentToday + creditCost > dailyCap`, and `0` never trips it) would
+  ever refuse it, i.e. unlimited, uncached, free provider calls through the generic endpoint.
+  `src/routes/aiBrief.js` loads and validates `capabilities/daily_brief.json` itself instead, with
+  its own small loader (same boot-load/SIGHUP-reload shape as every other loader in this repo).
+- **`globalSpendCost` (a required, positive integer, currently `1`)** — the real per-generation
+  cost weight `GET /v1/ai/brief` actually checks against `AI_DAILY_CREDIT_CAP` and records to the
+  ledger. Independent of `creditCost` on purpose.
+- **`store.recordCredit(..., countsTowardAllowance: false)`** — the ledger row this route writes
+  passes `countsTowardAllowance: false`. `src/lib/store/*.js`'s `globalSpendToday()` is unscoped
+  and sums every row regardless of this flag (so the brief's spend is always in the global total);
+  `creditsUsed(subject, periodStart)` — the per-subject monthly-allowance lookup — now filters on
+  it, so this one row is invisible to that query. See `db/schema.sql`'s `counts_toward_allowance`
+  column comment and `src/lib/store/memoryStore.js`/`postgresStore.js`'s `recordCredit`/
+  `creditsUsed` comments. Every pre-Phase-4-A caller (i.e. every `POST /v1/ai/run` charge) omits
+  this field, so it defaults to `true` and behaves exactly as before — this is a pure addition to
+  the store interface, not a second storage path.
+
+### `maxOutputTokens` — sized for one short paragraph, not a full analysis
+
+`1024`, well under the `4096` every other `fast` capability uses — the brief is ONE short
+paragraph (2-4 sentences), not a multi-field analysis. Sized for: the actual prose (roughly
+100-160 tokens for a 50-80 word English paragraph), doubled for the worst-case non-Latin locale
+(this repo's own prior measurement: non-Latin output roughly doubles token count for equivalent
+content — see the Phase 2-A section above), plus the small fixed JSON-wrapper overhead and a
+buffer against the token-budget failure class documented in Plyndi-AI-Hub-Design.md §1.6 (thinking
+tokens sharing the output budget). `temperature` is `0.3`, lower than every other capability's
+`0.4-0.6`, because a factual one-liner with an explicit "never invent a number" instruction has
+much less to gain from variety and much more to lose from a hallucinated fact.
+
+### `ai_briefs` table + store methods
+
+One row per `(subject, local_date)` — see `db/schema.sql`'s comment for the exact columns.
+`PRIMARY KEY (subject, local_date)` **is** the once-per-user-per-day guarantee: `saveBrief`
+(added to both `src/lib/store/memoryStore.js` and `postgresStore.js`, alongside the existing
+`saveRun`/`getRun`/.../`globalSpendToday` surface — no second storage path) is a single upsert
+used from two different call sites with different fields populated:
+
+- `POST /v1/ai/brief/digest` passes `{ subject, localDate, digest }` — `digest_json` is
+  overwritten whenever supplied (a repost always takes effect), `brief_text`/`provider`/`model`
+  are left untouched.
+- `GET /v1/ai/brief`'s generation path passes `{ subject, localDate, briefText, provider, model }`
+  — `brief_text`/`provider`/`model` are only ever set once: on Postgres via
+  `COALESCE(ai_briefs.brief_text, EXCLUDED.brief_text)` (existing value wins), so nothing written
+  afterward — including a same-day digest repost, which passes `briefText` as `undefined` — can
+  ever blank out or replace an already-generated brief. The in-memory store mirrors this exactly.
+
+Retention: briefs older than ~90 days are prunable (`db/schema.sql`'s `ai_briefs_created_at`
+index is what a future prune job would scan) — no automatic job runs yet in this phase, same as
+`ai_runs`' documented-but-not-cron-enforced 12-month retention; this repo's anti-goals explicitly
+rule out adding a cron here. The in-memory adapter self-bounds via `AI_BRIEF_STORE_MAX`/
+`AI_BRIEF_STORE_TTL_MS` (defaults: 5000 entries / 90 days) the same way `AI_RUN_STORE_MAX`/
+`AI_RUN_STORE_TTL_MS` already do for runs.
+
+### Known, accepted race: two simultaneous first-of-day `GET`s
+
+Unlike `POST /v1/ai/run`, `GET /v1/ai/brief` has no `idempotencyKey` — there's nothing for the
+client to supply one from, since the request is a plain cache lookup, not an action. Two
+concurrent first-of-day `GET`s for the same `(subject, localDate)` can therefore both reach the
+"no brief cached yet" branch and both call the provider before either has saved. The upsert
+ensures the **cache is still correct** (only the first write's `brief_text` is ever kept — see
+above), but a same-instant race can spend twice against the global cap. Accepted as a rare,
+bounded edge case for this phase: a normal client only ever issues one such `GET` per
+app-foreground per day.
+
+### Testing — `scripts/test-ai-brief.js`
+
+Plain Node, no framework, the provider layer stubbed, run entirely against the in-memory store —
+same shape as `scripts/test-ai-credits.js`. Covers: a digest `POST` storing without generating
+(provider call count `0`); the first `GET` generating once and a second `GET` for the same
+`localDate` returning the cached result with the call count still `1`; a different `localDate`
+generating again; no digest posted yet returning `204` with no provider call; re-posting a digest
+neither invalidating an existing brief nor re-billing it; the brief leaving
+`GET /v1/ai/entitlement`'s `creditsUsed` at `0` while still visibly incrementing
+`globalSpendToday()`; the global cap rejecting a second subject once exhausted, with the provider
+never called; `daily_brief` disabled via `remote-config.json`'s feature flag (SIGHUP-equivalent
+in-process reload, same technique `scripts/test-ai-hub.js` uses) refusing with no provider call and
+recovering once re-enabled; and a battery of bad/absent/far-future `localDate`/`timeZone` values
+all rejected with zero provider calls. Run with `node scripts/test-ai-brief.js` (or `npm test`,
+which now runs all five suites in sequence).
+
+### What's verified vs. what isn't
+
+**Verified in this repo:** every scenario above, against the in-memory store — this environment
+has no local Postgres and no network path to Render's (same limitation Phase 3-A's README section
+already documents). All five suites pass (`npm test`).
+
+**NOT verified — no Postgres reachable from this environment:** `ai_briefs`' `saveBrief`/
+`getBrief` queries in `src/lib/store/postgresStore.js`, the `ON CONFLICT` upsert's COALESCE
+semantics under real concurrent writes, `ai_credit_ledger`'s new `counts_toward_allowance` column
+actually landing via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` against the **already-migrated,
+live** Render database (this is the first schema change since Phase 3-A's initial `CREATE TABLE`,
+so it's the first real test of `scripts/migrate.js`'s idempotent-upgrade path, not just its
+idempotent-no-op path). Before trusting this in production: run `node scripts/migrate.js` against
+the live `DATABASE_URL`, confirm the log names `ai_briefs`, then confirm
+`\d ai_credit_ledger` shows `counts_toward_allowance` and a real `POST /v1/ai/brief/digest` +
+`GET /v1/ai/brief` round trip lands a row in `ai_briefs` and a `counts_toward_allowance = false`
+row in `ai_credit_ledger`.
+
+### Known, deliberate gap: no card in `GET /v1/ai/hub`
+
+`capabilities/daily_brief.json` has no `card` field, so it never appears in the `GET /v1/ai/hub`
+catalog (`src/routes/aiHub.js`'s `cardValidationError` skips it with one harmless, expected
+`SKIPPING card for capability "daily_brief": missing "card" block` log line per hub request — not
+a bug). This matches the design doc precisely: `brief` is explicitly **not** one of Phase 2-B's
+four frozen card types (`inline`/`sheet`/`link`/`input`), and adding it is described as its own
+future App Store release for the renderer. Surfacing the Daily Brief in the app is Phase 4-B's
+job, entirely outside this repo. `src/routes/aiHub.js` and `src/config/hub.json` are untouched by
+this phase.
+
+### Phase 4-B (iOS) — what it must build against
+
+Not part of this repo. The next iOS phase needs to: build the digest from `AppStore`'s own data
+(spend vs. category budgets/pace, todo due/overdue counts, next trip + days out, unchecked packing
+count) in exactly the shape documented above; `POST` it on app background/foreground with the
+device's own `localDate`/`timeZone`/`locale`; call `GET /v1/ai/brief?localDate=<today>` on
+foreground and render `brief` (handling `204` as "nothing to show yet", not an error); and decide
+whether a morning local/push notification rides on the existing background-refresh hook or needs
+its own budget (Plyndi-AI-Hub-Design.md §8, item 7 — explicitly still open). This repo adds no
+push/APNs capability of any kind; the app has none today.
 
 ## Versioned sync backups
 

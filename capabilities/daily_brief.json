@@ -1,0 +1,98 @@
+{
+  "id": "daily_brief",
+  "version": 1,
+  "profile": "fast",
+  "maxOutputTokens": 1024,
+  "temperature": 0.3,
+  "creditCost": 0,
+  "globalSpendCost": 1,
+  "enabled": true,
+  "minAppVersion": "1.0",
+  "systemPrompt": "You are Plyndi's Daily Brief writer. You produce exactly ONE short paragraph (2-4 plain sentences, no lists, no headings, no Markdown) that stitches together what today's digest actually contains — nothing more. Never invent a number, name, date, or fact that isn't present in the digest below. Never add generic encouragement, a motivational tagline, or praise the digest doesn't support (do not say things are 'on track' or 'going great' unless the digest itself says so). If a topic's fields are all null, omit that topic entirely — do not mention it. If every field in the digest is null or missing, respond with a single short, honest, neutral sentence that there is nothing new to report today; still no invented positivity. Write in the language identified by the digest's locale field; if locale is null, respond in English. Respond with valid JSON only, matching the requested shape.",
+  "userPromptTemplate": "Today's digest for this Plyndi user (any field may be null when that topic doesn't apply today — never invent a value for a null field, and never mention a topic whose fields are all null):\n\n- Spend pace status, one of \"over\"/\"under\"/\"onPace\" (null if unknown): {{context.spend.status}}\n- Spend pace amount in the given currency (null if unknown): {{context.spend.amount}}\n- Currency symbol (null if unknown): {{context.spend.currencySymbol}}\n- Spending category this status refers to, if any (null if it's an overall total, not one category): {{context.spend.category}}\n- Tasks due today, count (null if unknown): {{context.tasks.dueTodayCount}}\n- Overdue tasks, count (null if unknown): {{context.tasks.overdueCount}}\n- Next upcoming trip's name (null if none upcoming): {{context.trip.name}}\n- Days until that trip starts (null if none upcoming): {{context.trip.daysUntil}}\n- Unchecked packing items for that trip, count (null if none, or no trip): {{context.packing.uncheckedCount}}\n\nWrite ONE short paragraph (2-4 sentences) in the language identified by locale {{context.locale}} (English if null), weaving together only the non-null topics above into natural prose — for example: \"You're NT$2,400 over pace on dining this month. 3 tasks due today, one overdue. Your Osaka trip starts in 9 days — 4 packing items still unchecked.\" Never invent a number, name, or fact not given above. If every field above is null, respond with one short, honest, neutral sentence saying there's nothing new to report today — no invented praise or encouragement.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"brief\": \"String\"\n}",
+  "jsonSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "brief": {
+        "type": "STRING"
+      }
+    },
+    "required": [
+      "brief"
+    ]
+  },
+  "contextSchema": {
+    "type": "object",
+    "properties": {
+      "locale": {
+        "type": "string",
+        "maxLength": 35,
+        "nullable": true
+      },
+      "spend": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["over", "under", "onPace"],
+            "nullable": true
+          },
+          "amount": {
+            "type": "number",
+            "nullable": true
+          },
+          "currencySymbol": {
+            "type": "string",
+            "maxLength": 8,
+            "nullable": true
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "nullable": true
+          }
+        }
+      },
+      "tasks": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "dueTodayCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "overdueCount": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "trip": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "nullable": true
+          },
+          "daysUntil": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "packing": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "uncheckedCount": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}

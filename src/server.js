@@ -16,6 +16,7 @@ const configRoute = require('./routes/config');
 const aiRunRoute = require('./routes/aiRun');
 const aiHubRoute = require('./routes/aiHub');
 const aiEntitlementRoute = require('./routes/aiEntitlement');
+const aiBriefRoute = require('./routes/aiBrief');
 const affiliateRoute = require('../routes/affiliateRoutes');
 
 const app = express();
@@ -66,6 +67,8 @@ app.use('/v1/ai', aiRunRoute);
 app.use('/v1/ai/hub', aiHubRoute);
 // Credits + entitlement reporting (Phase 3-A) — GET /v1/ai/entitlement.
 app.use('/v1/ai/entitlement', aiEntitlementRoute);
+// Daily Brief (Phase 4-A) — POST /v1/ai/brief/digest, GET /v1/ai/brief.
+app.use('/v1/ai/brief', aiBriefRoute);
 // Regional affiliate recommendations return all three provider options in one call.
 app.use('/api/v1/planner', affiliateRoute);
 app.use('/v1/planner', affiliateRoute);

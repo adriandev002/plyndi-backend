@@ -36,7 +36,7 @@ async function main() {
   console.log(`[migrate] applying ${schemaPath} ...`);
   try {
     await pool.query(schema);
-    console.log('[migrate] done — ai_runs, ai_credit_ledger, users_ai are up to date.');
+    console.log('[migrate] done — ai_runs, ai_credit_ledger, users_ai, ai_briefs are up to date.');
   } catch (err) {
     console.error('[migrate] FAILED:', err.message);
     process.exitCode = 1;

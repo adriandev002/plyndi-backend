@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node scripts/test-config.js && node scripts/test-ai-run.js && node scripts/test-ai-hub.js && node scripts/test-ai-credits.js",
+    "test": "node scripts/test-config.js && node scripts/test-ai-run.js && node scripts/test-ai-hub.js && node scripts/test-ai-credits.js && node scripts/test-ai-brief.js",
     "migrate": "node scripts/migrate.js"
   },
   "engines": {

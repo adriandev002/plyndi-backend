@@ -9,6 +9,17 @@
 // A malformed capability file is SKIPPED with a loud log, never a boot failure — one bad file
 // must not take the other eight down with it, same reasoning config.js's permissive fallback
 // documents for remote-config.json.
+//
+// Phase 4-A note: `daily_brief` (Plyndi-AI-Hub-Design.md §3.1) is DELIBERATELY NOT loaded through
+// this registry, even though capabilities/daily_brief.json exists and follows the same file
+// shape. Every capability loaded here is automatically callable through the generic
+// POST /v1/ai/run — which charges (and caps) purely by `creditCost`. daily_brief's `creditCost`
+// is 0 (it's free for every user, §6) but it still spends real provider quota per Phase 4-A's
+// own once-per-user-per-day cache; routing it through POST /v1/ai/run would let a caller trigger
+// unlimited, uncached generations that cost 0 against both the per-subject allowance AND the
+// global daily cap (aiRun.js's cap check adds `creditCost`, so a 0-cost capability never trips
+// it). src/routes/aiBrief.js loads and validates capabilities/daily_brief.json itself instead,
+// with its own cache key and its own global-cap accounting — see that file's header comment.
 
 const fs = require('fs');
 const path = require('path');
@@ -67,7 +78,11 @@ function loadCapabilities() {
     return;
   }
 
-  for (const file of files) {
+  // Phase 4-A: daily_brief.json is intentionally excluded here (not an error) — see this file's
+  // header comment. src/routes/aiBrief.js loads it separately.
+  const consideredFiles = files.filter((file) => path.basename(file, '.json') !== 'daily_brief');
+
+  for (const file of consideredFiles) {
     const id = path.basename(file, '.json');
     try {
       const raw = fs.readFileSync(path.join(CAPABILITIES_DIR, file), 'utf8');
@@ -81,7 +96,7 @@ function loadCapabilities() {
   }
 
   capabilities = next;
-  console.log(`[capabilities] loaded ${capabilities.size}/${files.length} capability file(s): ${[...capabilities.keys()].sort().join(', ') || '(none)'}`);
+  console.log(`[capabilities] loaded ${capabilities.size}/${consideredFiles.length} capability file(s): ${[...capabilities.keys()].sort().join(', ') || '(none)'}`);
 }
 
 loadCapabilities();
