@@ -15,6 +15,7 @@ const syncRoute = require('./routes/sync');
 const configRoute = require('./routes/config');
 const aiRunRoute = require('./routes/aiRun');
 const aiHubRoute = require('./routes/aiHub');
+const aiEntitlementRoute = require('./routes/aiEntitlement');
 const affiliateRoute = require('../routes/affiliateRoutes');
 
 const app = express();
@@ -63,6 +64,8 @@ app.use('/v1/sync', syncRoute);
 app.use('/v1/ai', aiRunRoute);
 // Server-driven hub catalog (Phase 2-A) — GET /v1/ai/hub.
 app.use('/v1/ai/hub', aiHubRoute);
+// Credits + entitlement reporting (Phase 3-A) — GET /v1/ai/entitlement.
+app.use('/v1/ai/entitlement', aiEntitlementRoute);
 // Regional affiliate recommendations return all three provider options in one call.
 app.use('/api/v1/planner', affiliateRoute);
 app.use('/v1/planner', affiliateRoute);

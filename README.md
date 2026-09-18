@@ -16,6 +16,7 @@ would have sent straight to Google/OpenAI; this just injects the real key and fo
 - `GET /v1/config` → the Phase 0 AI Hub kill switch / version gate (see below)
 - `POST /v1/ai/run`, `GET /v1/ai/runs` → the Phase 1-A AI Hub capability registry (see below)
 - `GET /v1/ai/hub` → the Phase 2-A server-driven AI Hub catalog (see below)
+- `GET /v1/ai/entitlement` → the Phase 3-A credits meter (see below)
 
 Every request (except `/healthz`) must carry an `X-Plyndi-Client-Key` header matching
 `CLIENT_SHARED_KEY` — see `src/middleware/auth.js` for what that does and doesn't protect
@@ -206,11 +207,10 @@ GET /v1/ai/runs?limit=&cursor=
   later phase legitimately overwrites is exactly the bug that once emptied every itinerary in
   production (a client required `legFromPrevious` on every stop while OpenAI's strict-schema mode
   legitimately returned `null` for it).
-- **Run storage is temporary and in-memory** (`src/lib/runStore.js`) — Phase 3 replaces it with
-  Render Postgres; Render's own disk is not durable, so a file-backed store would be *worse* than
-  today's in-memory one, not a real fix. There is no per-user identity until Phase 3's JWT lands,
-  so every run is scoped under one coarse bucket for now — idempotency and `GET /v1/ai/runs` are
-  effectively per-deployment, not per-user, until then.
+- **Run storage was temporary and in-memory** as of this phase (Phase 1-A) — Phase 3-A (see its own
+  section below) replaced it with a real storage adapter (`src/lib/store/`) that's in-memory by
+  default and Postgres-backed on Render, plus per-subject identity (`src/lib/subject.js`)
+  replacing the single coarse bucket every run used to share.
 - **Known gap, flagged rather than silently worked around**: `receipt_scan` and `form_coach` are
   vision capabilities (they analyze a photo), but `providerGateway.generate()` only sends text
   (`system`/`user` strings) to Gemini/OpenAI — there is no image parameter. Both capability files
@@ -437,6 +437,199 @@ the `copyKeys` check above, the `receipt_scan`/`form_coach` type guard, a live s
 restart), a malformed card being skipped without taking the other eight down, a missing/corrupt
 `hub.json` still serving a valid non-empty catalog, `ETag`/`304`, stable ordering across repeated
 calls, and the `staticCards` mechanism actually merging a card in and back out.
+
+## AI credits, per-device identity + global spend cap (Phase 3-A)
+
+The security hole this phase closes: `CLIENT_SHARED_KEY` is baked into every installed build, so
+anyone who extracts the IPA can call `POST /v1/ai/run` and spend the OpenAI/Gemini budget with no
+account and no limit beyond the per-IP rate limiter. There was no spend ceiling of any kind.
+
+**Identity reality — read this before touching `src/lib/subject.js`.** The app links only
+FirebaseAI: there is no Firebase Auth and no Firebase uid. Sign-in is Apple/Google, handled
+entirely on-device, and `AuthManager.isPremium` is a client-side `UserDefaults` boolean — not a
+server-verifiable fact. **The app sends no `Authorization` header today.** Two consequences:
+
+1. **Backward compatibility is non-negotiable.** Every build already installed sends zero identity
+   headers. If `POST /v1/ai/run` started requiring one, every one of those builds would break with
+   no fix but an App Store release. `AI_REQUIRE_VERIFIED_IDENTITY` therefore defaults to `false`
+   (the opposite of `SYNC_REQUIRE_VERIFIED_IDENTITY`'s strict default — see "Versioned sync
+   backups" below) and nothing in this phase enforces it.
+2. **This is not per-user entitlement.** Knowing who is genuinely Premium requires server-side
+   StoreKit receipt validation, which does not exist. `GET /v1/ai/entitlement`'s `plan` is honestly
+   `"unknown"` — never inferred from anything the client sends.
+
+### Identity — `src/lib/subject.js`
+
+Every `POST /v1/ai/run` and `GET /v1/ai/entitlement` call resolves a subject, in order of
+confidence, and **never rejects for missing identity while `AI_REQUIRE_VERIFIED_IDENTITY` is
+`false` (the default)**:
+
+1. a verified HS256 bearer token (`Authorization: Bearer <jwt>`, `sub` claim, `AI_JWT_SECRET`) →
+   `{ subject: <sub>, verified: true }`. Nothing issues one of these today — this exists for a
+   future real-account rollout.
+2. `X-Plyndi-Device-ID` (Phase 3-B: a stable Keychain-backed UUID the iOS app will start sending) →
+   `{ subject: 'dev:'+id, verified: false }`.
+3. neither → `{ subject: 'anon:'+hash(ip), verified: false }`, a coarse fallback so at least all
+   requests from one caller share a bucket.
+
+The HS256 verification logic is **lifted into `src/lib/hs256Subject.js`** out of
+`src/routes/sync.js`, which already had a correct, tested verifier (`verifiedJwtSubject`) for its
+own per-user bearer tokens — reused rather than reinvented. **`/v1/sync`'s own behaviour is
+unchanged**: same secret (`SYNC_JWT_SECRET`), same default (`SYNC_REQUIRE_VERIFIED_IDENTITY=true`),
+same `X-Plyndi-User-ID` fallback; it just calls through the shared module now. `/v1/ai/run` uses a
+separate secret (`AI_JWT_SECRET`) and the opposite default, because it is a different trust
+decision for a different surface.
+
+`verified` is stored on every run and ledger row precisely so a future real-account system can
+tell genuine verified subjects apart from device ids later, without a data migration — nothing
+today infers anything from it.
+
+### Storage adapter — `src/lib/store/`
+
+One method surface, two implementations, chosen automatically by `DATABASE_URL`'s presence
+(`src/lib/store/index.js`): `saveRun`, `getRun`, `findByIdempotency`, `listRuns`, `recordCredit`,
+`creditsUsed`, `globalSpendToday` — every method returns a Promise on both adapters, so route code
+never knows which one is live.
+
+- **`memoryStore.js`** — what Phase 1-A's `runStore.js` already did for run storage (bounded +
+  TTL, `AI_RUN_STORE_MAX`/`AI_RUN_STORE_TTL_MS`), plus a new in-memory credit ledger
+  (`AI_CREDIT_LEDGER_MAX`/`AI_CREDIT_LEDGER_TTL_MS`). Used whenever `DATABASE_URL` is unset, and by
+  every test in this repo — this environment has no local Postgres to test against (see below).
+- **`postgresStore.js`** — `pg`-backed (the one npm dependency this phase adds; there is no way to
+  speak the Postgres wire protocol without a client library). Used whenever `DATABASE_URL` is set.
+
+**A missing `DATABASE_URL` must never take the AI Hub down** — it falls back to the in-memory
+adapter and logs loudly (`[store] DATABASE_URL is NOT set — ...`) that runs and credits are not
+durable, rather than refusing to boot. The AI Hub is the app's Premium screen; a missing database
+is a real problem worth fixing, but is not a reason to serve nothing.
+
+### `db/schema.sql` + `scripts/migrate.js`
+
+Three tables — `ai_runs`, `ai_credit_ledger`, `users_ai` — with a **unique index on
+`(scope_key, idempotency_key)`**. That index *is* the idempotency guarantee: `postgresStore.js`
+relies on losing an `INSERT ... ON CONFLICT DO NOTHING` race and reading back the winning row,
+never on a read-then-write check in application code, which would have a race window of its own.
+Every statement is `CREATE ... IF NOT EXISTS`, so `node scripts/migrate.js` (or `npm run migrate`)
+is safe to run on every deploy, including against an already-migrated database.
+
+### `creditCost` in `capabilities/*.json`
+
+Added the same way Phase 2-A added `card` — one new field per file, nothing else touched (prompts,
+schemas, profiles, token budgets and card blocks are byte-identical to before this phase):
+
+| Capability | `creditCost` |
+|---|---|
+| `budget_insights`, `daily_plan`, `shopping_suggestions`, `quick_add_parse`, `readiness` | 1 |
+| `receipt_scan`, `form_coach` | 2 |
+| `trip_itinerary_day`, `workout_plan` | 3 |
+
+`src/lib/capabilityRegistry.js` now also validates that `creditCost` is a positive integer — a
+capability file that omits or botches it is skipped with a loud log at boot, the same as any other
+required field, rather than silently running for free in production.
+
+### `POST /v1/ai/run` — what changed
+
+In request order: capability/version/context gates are unchanged from Phase 1-A, then —
+
+1. **resolve subject** (above) — replaces the single `ANONYMOUS_SCOPE` constant every request used
+   to share; it is now the store's `scopeKey` and also scopes `GET /v1/ai/runs`.
+2. **idempotency check** — unchanged in effect, now scoped per-subject instead of globally; a
+   replay short-circuits before either check below, so it can never itself trip either one.
+3. **global daily spend cap** (`AI_DAILY_CREDIT_CAP`, default 2000) — checked **before the provider
+   is ever called**, summed across every subject for the current UTC day. Over → `429
+   daily_capacity_reached`, provider never reached. This is the one limit that enforces
+   unconditionally, no flag, from day one — the catastrophic case (a leaked `CLIENT_SHARED_KEY`
+   draining the month's budget overnight) is exactly what a cap that only logs would fail to stop.
+   The first trip each UTC day is logged loudly; subsequent trips the same day are not, so a
+   sustained overage doesn't spam the log.
+4. **per-subject monthly allowance** (`AI_MONTHLY_CREDIT_ALLOWANCE`, default 15) — **shadow mode by
+   default** (`AI_CREDITS_ENFORCE=false`): an over-allowance subject is logged
+   (`console.warn(...over its monthly allowance...)`) and **still served**. Only when
+   `AI_CREDITS_ENFORCE=true` does it return `402 credits_exhausted` with
+   `creditsUsed`/`creditsIncluded`/`creditsRemaining`/`periodStart`/`periodEnd`. The first guess at
+   credit pricing is always wrong; real usage data has to exist before enforcement is worth turning
+   on.
+5. on success, the ledger is debited **after** the run succeeds — a failed/rejected/capped request
+   never reaches the debit, so nothing is ever charged for a run that didn't happen.
+
+Both the enforce flag and the daily cap are read fresh from `process.env` on every request (the
+same choice `src/middleware/auth.js` already makes for `CLIENT_SHARED_KEY`), not cached once at
+module load — this is what lets `scripts/test-ai-credits.js` exercise both settings of each flag
+against one already-listening server instead of spawning a process per scenario, and it also means
+either can be changed on a live server without a restart if the process supports live env updates.
+
+### `GET /v1/ai/entitlement`
+
+```
+GET /v1/ai/entitlement
+→ { plan, creditsIncluded, creditsUsed, creditsRemaining, periodStart, periodEnd, enforcing }
+```
+
+`plan` is always `"unknown"` — see "Identity reality" above for why inferring Premium from the
+client would defeat the entire point of this phase. `enforcing` mirrors `AI_CREDITS_ENFORCE` so the
+app can render an honest meter instead of guessing. Nothing here refuses anything; `POST
+/v1/ai/run` is the only place enforcement (when on) actually happens.
+
+### Testing — `scripts/test-ai-credits.js`
+
+Plain Node, no framework, the provider layer stubbed, run entirely against the in-memory store
+(`DATABASE_URL` is explicitly deleted at the top of the script). Covers: a request with zero
+identity headers still succeeding (the shipped-build regression), subject-resolution precedence
+and that `verified` is recorded correctly, ledger totals matching `creditCost` across a mixed run
+of capabilities, an idempotent replay charging once not twice, `AI_CREDITS_ENFORCE=false` letting
+an over-allowance subject through with the overage logged, the same subject getting `402` once
+`AI_CREDITS_ENFORCE=true`, the global spend cap tripping `429` for a third, distinct subject with
+the provider call count at zero, and the `DATABASE_URL`-unset boot warning. Run with
+`node scripts/test-ai-credits.js` (or `npm test`, which now runs all four suites in sequence).
+
+### What's verified vs. what isn't
+
+**Verified in this repo, by running the suites above:** every code path against the in-memory
+store — all nine scenarios in `scripts/test-ai-credits.js`, plus all three pre-existing suites
+still passing (`npm test`), plus `node --test test/sync.test.js` confirming `/v1/sync`'s behaviour
+is byte-identical after the verifier extraction.
+
+**NOT verified — no Postgres is reachable from this development environment** (no `psql`/
+`pg_isready` on `PATH`, no network path to any Postgres server, including Render's): every query in
+`src/lib/store/postgresStore.js`, the `ON CONFLICT ... DO NOTHING` idempotency race handling, and
+`scripts/migrate.js` actually applying `db/schema.sql`. All of it was written directly against the
+schema and reviewed line by line, but **has never executed against a live server**. Before trusting
+it in production: provision Postgres (below), run the migration, then run one real
+`POST /v1/ai/run` and confirm rows land in `ai_runs` and `ai_credit_ledger`.
+
+### Render provisioning steps (the user must do these)
+
+1. **Render dashboard → New → PostgreSQL.** Pick a plan (the free 90-day instance is fine to start
+   verifying with; a paid plan is required before this is load-bearing for real users, since the
+   free tier is deleted after 90 days).
+2. **Copy the "Internal Database URL"** Render shows you (not the external one — the backend
+   service and the database run in the same Render private network) into the backend web service's
+   **Environment** tab as `DATABASE_URL`.
+3. **Set the other Phase 3-A variables** in the same Environment tab — at minimum
+   `AI_CREDITS_ENFORCE=false` and `AI_MONTHLY_CREDIT_ALLOWANCE`/`AI_DAILY_CREDIT_CAP` if the
+   `.env.example` defaults don't fit; leave `AI_JWT_SECRET` unset until a real account system
+   exists.
+4. **Run the migration once** — either add `node scripts/migrate.js` as a Render **Pre-Deploy
+   Command** (so it runs idempotently on every future deploy too, which is the recommended
+   long-term setup), or run it one time from a Render Shell / your own machine with `DATABASE_URL`
+   pointed at the new instance: `DATABASE_URL=<the connection string> npm run migrate`.
+5. **Deploy**, then confirm `[store] DATABASE_URL is set — using the Postgres-backed store` appears
+   in the Render logs instead of the in-memory warning, and that a real
+   `POST /v1/ai/run`/`GET /v1/ai/entitlement` round trip works end to end.
+
+### Phase 3-B (iOS) — what it must send
+
+Not part of this repo. The next iOS phase needs to:
+
+- Generate a stable UUID once, store it in the Keychain (not `UserDefaults` — it must survive an
+  app reinstall's `UserDefaults` reset the same way other Keychain-backed identifiers in this app
+  already do), and send it as `X-Plyndi-Device-ID` on every `POST /v1/ai/run` and
+  `GET /v1/ai/entitlement` call.
+- Render `GET /v1/ai/entitlement`'s response as a credits meter (Plyndi-AI-Hub-Design.md §3.5) —
+  `enforcing:false` today means the meter is informational only, nothing is actually refused yet.
+- Handle `402 credits_exhausted` (once `AI_CREDITS_ENFORCE` is eventually flipped on) and `429
+  daily_capacity_reached` with real user-facing copy — neither exists in the app today because
+  neither could happen before this phase.
 
 ## Versioned sync backups
 

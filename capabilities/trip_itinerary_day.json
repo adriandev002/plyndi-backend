@@ -4,6 +4,7 @@
   "profile": "rich",
   "maxOutputTokens": 12288,
   "temperature": 0.65,
+  "creditCost": 3,
   "enabled": true,
   "minAppVersion": "1.0",
   "systemPrompt": "You are a meticulous local travel planner inside the Plyndi app. You know real places, real opening hours and real public transport. Respond with valid JSON only, matching the requested shape exactly. Never invent a place that does not exist.",

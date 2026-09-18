@@ -38,6 +38,13 @@ function validationError(id, parsed) {
   if (!Number.isInteger(parsed.maxOutputTokens) || parsed.maxOutputTokens <= 0) {
     return '"maxOutputTokens" must be a positive integer';
   }
+  // Phase 3-A (Plyndi-AI-Hub-Design.md §6) — debited from the caller's monthly allowance by
+  // src/routes/aiRun.js. Required so every run has a well-defined cost; a capability author who
+  // forgets it gets a loud SKIPPING log at boot, the same as forgetting any other required field,
+  // rather than a silent free run in production.
+  if (!Number.isInteger(parsed.creditCost) || parsed.creditCost <= 0) {
+    return '"creditCost" must be a positive integer';
+  }
   if (typeof parsed.enabled !== 'boolean') return '"enabled" must be a boolean';
   if (typeof parsed.minAppVersion !== 'string' || !parsed.minAppVersion) return '"minAppVersion" must be a non-empty string';
   if (typeof parsed.systemPrompt !== 'string' || !parsed.systemPrompt) return '"systemPrompt" must be a non-empty string';
