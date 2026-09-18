@@ -31,5 +31,15 @@
       "activeEnergyBurnedToday": { "type": "number", "nullable": true },
       "activeEnergyBurnedYesterday": { "type": "number", "nullable": true }
     }
+  },
+  "card": {
+    "type": "link",
+    "section": "fitness",
+    "order": 30,
+    "icon": "waveform.path.ecg",
+    "copyKeys": { "title": "readinessScore", "subtitle": "readinessScoreSubtitle" },
+    "fallbackText": null,
+    "sheetId": null,
+    "destination": "fitness"
   }
 }

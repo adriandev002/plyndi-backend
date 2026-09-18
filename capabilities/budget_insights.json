@@ -201,5 +201,15 @@
         }
       }
     }
+  },
+  "card": {
+    "type": "inline",
+    "section": "money",
+    "order": 10,
+    "icon": "chart.line.uptrend.xyaxis",
+    "copyKeys": { "title": "aiBudgetInsights", "subtitle": "aiBudgetInsightsSubtitle" },
+    "fallbackText": null,
+    "sheetId": null,
+    "destination": null
   }
 }

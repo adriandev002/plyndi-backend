@@ -1,0 +1,31 @@
+{
+  "hubVersion": 1,
+  "ttlSeconds": 900,
+  "sections": [
+    {
+      "id": "money",
+      "order": 10,
+      "copyKey": null,
+      "fallbackText": { "en": "Money", "zh-Hant": "財務" }
+    },
+    {
+      "id": "planning",
+      "order": 20,
+      "copyKey": null,
+      "fallbackText": { "en": "Planning", "zh-Hant": "規劃" }
+    },
+    {
+      "id": "travel",
+      "order": 30,
+      "copyKey": null,
+      "fallbackText": { "en": "Travel", "zh-Hant": "旅遊" }
+    },
+    {
+      "id": "fitness",
+      "order": 40,
+      "copyKey": null,
+      "fallbackText": { "en": "Fitness", "zh-Hant": "健身" }
+    }
+  ],
+  "staticCards": []
+}

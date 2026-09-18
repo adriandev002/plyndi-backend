@@ -31,5 +31,20 @@
       "currentType": { "type": "string", "maxLength": 20, "nullable": true },
       "accountNames": { "type": "array", "maxItems": 50, "items": { "type": "string", "maxLength": 80 } }
     }
+  },
+  "card": {
+    "type": "link",
+    "section": "planning",
+    "order": 30,
+    "icon": "plus.circle",
+    "copyKeys": { "title": "quickAddTitle" },
+    "fallbackText": {
+      "subtitle": {
+        "en": "Log an expense, task, or item with one line of text.",
+        "zh-Hant": "用一句話快速記錄支出、待辦或購物項目。"
+      }
+    },
+    "sheetId": null,
+    "destination": "quickAdd"
   }
 }
