@@ -13,7 +13,8 @@
     "trip_itinerary_day": true,
     "workout_plan": true,
     "form_coach": true,
-    "readiness": true
+    "readiness": true,
+    "daily_brief": true
   },
   "messages": {
     "banner": null

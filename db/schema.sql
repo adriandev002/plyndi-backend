@@ -60,6 +60,17 @@ CREATE INDEX IF NOT EXISTS ai_credit_ledger_scope_created_at ON ai_credit_ledger
 -- since the cap sums every subject's spend for the day.
 CREATE INDEX IF NOT EXISTS ai_credit_ledger_created_at ON ai_credit_ledger (created_at);
 
+-- Phase 4-A (Plyndi-AI-Hub-Design.md §3.1, §6) — distinguishes "real provider spend" from "counts
+-- against a subject's monthly allowance". The Daily Brief is free for every user (creditCost 0 in
+-- capabilities/daily_brief.json) but still a real provider call, so its ledger row sets this
+-- false: globalSpendToday() (unscoped — see the index comment above) must still see it,
+-- creditsUsed(subject, periodStart) must not. Defaults true so every row written before this
+-- column existed, and every ordinary POST /v1/ai/run charge after it, is unaffected — this is an
+-- ADD COLUMN, not a rebuild of an existing CREATE TABLE IF NOT EXISTS block, specifically so it
+-- also lands correctly on an already-migrated live database (re-running this file is Render's
+-- Pre-Deploy Command on every deploy).
+ALTER TABLE ai_credit_ledger ADD COLUMN IF NOT EXISTS counts_toward_allowance BOOLEAN NOT NULL DEFAULT true;
+
 -- Lightweight registry of every subject the ledger has ever recorded a charge for. `plan` is
 -- hardcoded 'unknown' by src/lib/store/postgresStore.js today — there is no server-verifiable
 -- Premium signal yet (see src/routes/aiEntitlement.js's header comment). This table exists so a
@@ -72,3 +83,32 @@ CREATE TABLE IF NOT EXISTS users_ai (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Phase 4-A (Plyndi-AI-Hub-Design.md §3.1, §4.6) — the Daily Brief cache. ONE row per user per
+-- USER-LOCAL day (never UTC — see src/routes/aiBrief.js's header comment for why a UTC-keyed
+-- cache would show yesterday's numbers at breakfast in a timezone ahead of UTC). digest_json is
+-- written by POST /v1/ai/brief/digest and never triggers generation by itself; brief_text/
+-- provider/model are written once, by GET /v1/ai/brief's first call for that day.
+--
+-- PRIMARY KEY (subject, local_date) IS the once-per-user-per-day guarantee — src/lib/store/
+-- postgresStore.js upserts through it (ON CONFLICT), never a read-then-write check, same
+-- reasoning as ai_runs' idempotency index above. It also means a second POST for the same day
+-- overwrites digest_json but — by construction of that ON CONFLICT clause — can never blank out
+-- an already-generated brief_text, so a background digest refresh can never trigger (or cost) a
+-- second generation for a day already served.
+CREATE TABLE IF NOT EXISTS ai_briefs (
+  subject TEXT NOT NULL,
+  local_date TEXT NOT NULL,
+  digest_json JSONB,
+  brief_text TEXT,
+  provider TEXT,
+  model TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (subject, local_date)
+);
+
+-- Retention (Plyndi-AI-Hub-Design.md §4.6): briefs older than ~90 days are prunable. No automatic
+-- job runs yet in this phase — same as ai_runs' 12-month retention, documented but not
+-- cron-enforced (this repo's anti-goals explicitly rule out adding a cron here). This index is
+-- what a future prune job would scan.
+CREATE INDEX IF NOT EXISTS ai_briefs_created_at ON ai_briefs (created_at);
