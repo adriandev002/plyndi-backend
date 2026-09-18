@@ -29,3 +29,19 @@ services:
         sync: false
       - key: SYNC_REQUIRE_VERIFIED_IDENTITY
         value: "true"
+      # Phase 3-A credits + spend cap (see README.md's "AI credits, per-device identity + global
+      # spend cap" section for the manual Render Postgres provisioning steps this Blueprint
+      # deliberately does NOT automate — a `databases:` block here would auto-create a billed
+      # Postgres instance on every blueprint sync with no chance to pick plan/region first).
+      - key: DATABASE_URL
+        sync: false
+      - key: AI_JWT_SECRET
+        sync: false
+      - key: AI_REQUIRE_VERIFIED_IDENTITY
+        value: "false"
+      - key: AI_MONTHLY_CREDIT_ALLOWANCE
+        value: "15"
+      - key: AI_CREDITS_ENFORCE
+        value: "false"
+      - key: AI_DAILY_CREDIT_CAP
+        value: "2000"

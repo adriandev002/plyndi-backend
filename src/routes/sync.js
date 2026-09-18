@@ -1,7 +1,9 @@
-const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
+
+const { verifyHs256Subject, SUBJECT_PATTERN } = require('../lib/hs256Subject');
 
 const router = express.Router();
 
@@ -11,33 +13,10 @@ const STORAGE_DIR = path.resolve(process.env.SYNC_STORAGE_DIR || path.join(proce
 const SYNC_JWT_SECRET = process.env.SYNC_JWT_SECRET || '';
 const REQUIRE_VERIFIED_IDENTITY = process.env.SYNC_REQUIRE_VERIFIED_IDENTITY !== 'false';
 
-function base64UrlDecode(value) {
-  return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-}
-function verifiedJwtSubject(token) {
-  if (!SYNC_JWT_SECRET || typeof token !== 'string') return null;
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
-  let header;
-  let payload;
-  try {
-    header = JSON.parse(base64UrlDecode(parts[0]).toString('utf8'));
-    payload = JSON.parse(base64UrlDecode(parts[1]).toString('utf8'));
-  } catch (_error) {
-    return null;
-  }
-  if (header.alg !== 'HS256' || header.typ !== 'JWT' || typeof payload.sub !== 'string') return null;
-  const expected = crypto.createHmac('sha256', SYNC_JWT_SECRET).update(`${parts[0]}.${parts[1]}`).digest();
-  const provided = base64UrlDecode(parts[2]);
-  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) return null;
-  if (payload.exp !== undefined && (!Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000))) return null;
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(payload.sub)) return null;
-  return payload.sub;
-}
 function userIdFromRequest(req, res, next) {
   const authorization = req.get('Authorization') || '';
   const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
-  const verifiedUserId = verifiedJwtSubject(bearer);
+  const verifiedUserId = verifyHs256Subject(bearer, SYNC_JWT_SECRET);
   if (verifiedUserId) {
     req.plyndiUserId = verifiedUserId;
     req.plyndiIdentityVerified = true;
@@ -47,7 +26,7 @@ function userIdFromRequest(req, res, next) {
     return res.status(503).json({ error: 'Verified user identity is required for cloud sync. Configure SYNC_JWT_SECRET and send a valid bearer token.' });
   }
   const userId = req.get('X-Plyndi-User-ID');
-  if (!userId || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(userId)) {
+  if (!userId || !SUBJECT_PATTERN.test(userId)) {
     return res.status(400).json({ error: 'A valid X-Plyndi-User-ID header is required in development fallback mode.' });
   }
   req.plyndiUserId = userId;

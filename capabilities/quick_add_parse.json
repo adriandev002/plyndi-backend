@@ -4,6 +4,7 @@
   "profile": "fast",
   "maxOutputTokens": 4096,
   "temperature": 0.2,
+  "creditCost": 1,
   "enabled": true,
   "minAppVersion": "1.0",
   "systemPrompt": "You are a helpful assistant inside the Plyndi app. Follow the instructions exactly and respond with valid JSON only, matching the requested shape.",
