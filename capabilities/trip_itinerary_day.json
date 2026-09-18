@@ -187,5 +187,15 @@
       "zoneLine": { "type": "string", "maxLength": 600, "nullable": true },
       "retryLine": { "type": "string", "maxLength": 600, "nullable": true }
     }
+  },
+  "card": {
+    "type": "link",
+    "section": "travel",
+    "order": 10,
+    "icon": "airplane.circle",
+    "copyKeys": { "title": "aiTravelRecommendations", "subtitle": "aiHubAvailableInTravel" },
+    "fallbackText": null,
+    "sheetId": null,
+    "destination": "travelPlanner"
   }
 }

@@ -15,6 +15,7 @@ would have sent straight to Google/OpenAI; this just injects the real key and fo
 - `POST /v1/places/autocomplete`, `POST /v1/places/search` → Google Places API (New)
 - `GET /v1/config` → the Phase 0 AI Hub kill switch / version gate (see below)
 - `POST /v1/ai/run`, `GET /v1/ai/runs` → the Phase 1-A AI Hub capability registry (see below)
+- `GET /v1/ai/hub` → the Phase 2-A server-driven AI Hub catalog (see below)
 
 Every request (except `/healthz`) must carry an `X-Plyndi-Client-Key` header matching
 `CLIENT_SHARED_KEY` — see `src/middleware/auth.js` for what that does and doesn't protect
@@ -226,6 +227,216 @@ malformed file being skipped without taking the others down, the version/enabled
 idempotency, provider-failure error mapping, and a `/v1/generate` regression check — all against a
 real in-process HTTP server with the provider layer stubbed (this environment can't reach
 Gemini/OpenAI, and a suite that spends real money per run would be a bad suite regardless).
+
+## AI Hub server-driven catalog (Phase 2-A)
+
+The app's AI Hub screen (`AIHubView.swift`) is still a hardcoded Swift list — three cards and two
+cross-links, frozen in the binary. `GET /v1/ai/hub` makes the **server** describe that screen
+instead: sections, cards, which capability backs each one, and the localized copy to show. Phase
+2-B (not part of this repo) rewrites the iOS view into a renderer over this response. Until 2-B
+ships, this endpoint exists and is fully tested but nothing in the app calls it yet — same relationship
+Phase 0/1-A had to the app before their own iOS phases landed.
+
+```
+GET /v1/ai/hub
+→ { hubVersion, ttlSeconds, serverTime,
+    sections: [ { id, order, copyKey, fallbackText,
+                  cards: [ { id, type, icon, copyKeys, fallbackText, sheetId, destination } ] } ] }
+```
+
+### The card contract — frozen once Phase 2-B ships
+
+Phase 2-B hardcodes the card **types** into Swift. A type added later works on old builds with no
+release (they just don't render it); a type **renamed** later costs one. There are exactly four,
+and this set is not meant to grow casually:
+
+| Type | Behaviour | Requires |
+|---|---|---|
+| `inline` | runs via `POST /v1/ai/run` in place, result renders inside the card | — |
+| `sheet` | opens a named in-app sheet the app already has | non-null `sheetId` |
+| `link` | navigates to an existing module screen | non-null `destination` |
+| `input` | collects one short text input, then runs via `POST /v1/ai/run` | — |
+
+`brief` (Phase 4's Daily Brief) and `teaser` (Phase 3's credit-exhaustion state) are **not** in this
+set — they need infrastructure (a daily cache job, a credit ledger) this phase doesn't build. Adding
+them later is a new card type, i.e. an App Store release for 2-B's renderer, same as any other type.
+
+**Not every capability is an `inline` card — this is a design constraint, preserved from
+`AIHubView.swift`'s own header comment, not laziness.** Travel and Fitness capabilities that need
+more input than a hub card can collect (a trip form, a workout profile) stay honest `link` cards to
+where the real feature lives, instead of being faked as inline cards that would immediately need a
+form of their own.
+
+**`receipt_scan` and `form_coach` are hardcoded to `link` and validated as such at request time,
+independent of whatever their capability file says.** Both need a photograph, and
+`providerGateway.generate()` is text-only (see the Phase 1-A section above and
+`Plyndi-AI-Hub-Design.md` §10). An `inline` or `input` card for either would send an image that
+gets validated by `contextSchema` and then silently ignored by the provider call — a confident
+wrong answer with no error surfaced anywhere. `src/routes/aiHub.js`'s `IMAGE_ONLY_CAPABILITY_IDS`
+check exists specifically so a future edit to either capability file's `card.type` can't
+reintroduce this failure mode; `scripts/test-ai-hub.js` asserts it explicitly.
+
+### Frozen card fields
+
+```jsonc
+"card": {
+  "type": "inline",                // one of the four types above
+  "section": "money",              // must match an id in src/config/hub.json's "sections"
+  "order": 10,                     // sort key within its section, stable across calls
+  "icon": "chart.line.uptrend.xyaxis",   // SF Symbol name — a display hint only, not validated
+  "copyKeys": { "title": "aiBudgetInsights", "subtitle": "aiBudgetInsightsSubtitle" },
+  "fallbackText": null,            // see below — null when copyKeys covers every field
+  "sheetId": null,                 // required (non-null) when type is "sheet"
+  "destination": null              // required (non-null) when type is "link"
+}
+```
+
+- **`copyKeys`** maps a card field (`title`, `subtitle`) to a real `CopyKey` case name from the
+  app's `AppStore.swift` — the app resolves it locally in the caller's language, from the same
+  751-key/12-language catalog every other screen uses. A key that doesn't exist renders as nothing
+  in the app, so `scripts/test-ai-hub.js` greps `AppStore.swift`'s `enum CopyKey` directly and
+  fails the field if the name isn't a real case (see "Verifying copyKeys" below).
+- **`fallbackText`**, when a field needs it, is keyed **first by field name, then by locale**:
+  `{ "subtitle": { "en": "...", "zh-Hant": "..." } }`. It exists only for copy the app has never
+  shipped — `copyKeys` and `fallbackText` are mutually exclusive per field (a field is either a real
+  key or new fallback text, never both). `"en"` is mandatory whenever a field appears in
+  `fallbackText` at all; the app falls back to `"en"` for any locale it doesn't find a translation
+  for. `fallbackText` is `null` (not `{}`) when `copyKeys` already covers every field the card uses.
+- **`sheetId`** and **`destination`** are opaque strings 2-B maps to its own sheets/screens. The
+  allowed values are fixed here, in `src/routes/aiHub.js`'s `ALLOWED_SHEET_IDS`/
+  `ALLOWED_DESTINATIONS`, and independently re-declared in `scripts/test-ai-hub.js` so a drift
+  between the route and this table is caught by the test, not just by review:
+
+  | `sheetId` | Maps to |
+  |---|---|
+  | `dailyPlan` | `DailyPlanSheet` |
+  | `shoppingAssistant` | `ShoppingAssistantSheet` |
+
+  | `destination` | Maps to |
+  |---|---|
+  | `quickAdd` | The Quick Add sheet (`MainTabView.swift`) |
+  | `travelPlanner` | The Travel Planner module |
+  | `fitness` | The Fitness module |
+
+  Adding a new `sheetId`/`destination` value is safe to ship ahead of the app (an old build that
+  doesn't recognize it just can't render that one card's action — same "unknown is not fatal"
+  principle the design doc states for card types); it only becomes load-bearing once 2-B's renderer
+  is taught to handle it.
+
+### The frozen catalog (what 2-B renders)
+
+| Section | Card id | Type | Destination/Sheet |
+|---|---|---|---|
+| money | `budget_insights` | inline | — |
+| planning | `daily_plan` | sheet | `dailyPlan` |
+| planning | `shopping_suggestions` | sheet | `shoppingAssistant` |
+| planning | `quick_add_parse` | link | `quickAdd` |
+| planning | `receipt_scan` | link | `quickAdd` |
+| travel | `trip_itinerary_day` | link | `travelPlanner` |
+| fitness | `workout_plan` | link | `fitness` |
+| fitness | `form_coach` | link | `fitness` |
+| fitness | `readiness` | link | `fitness` |
+
+### `src/config/hub.json` — sections and static cards
+
+```jsonc
+{
+  "hubVersion": 1,
+  "ttlSeconds": 900,
+  "sections": [
+    { "id": "money", "order": 10, "copyKey": null, "fallbackText": { "en": "Money", "zh-Hant": "財務" } }
+    // ...planning / travel / fitness, same shape
+  ],
+  "staticCards": []   // pure link cards with NO backing AI capability — see below
+}
+```
+
+No `CopyKey` exists yet for grouping headers like "Money"/"Planning" (they're new UI structure, not
+previously shipped screen names), so all four section headers use `fallbackText` rather than a
+mismatched reuse of an existing module name. `copyKey`/`fallbackText` on a section follow the exact
+same shape and mutual-exclusivity rule as a card field.
+
+**`staticCards`** lets the hub point at a screen with no AI capability behind it at all — a pure
+`link` card that isn't gated by any `enabled`/`minAppVersion`/kill-switch check, because there's no
+capability object to check. It's empty in this phase (nothing needed one yet); `scripts/test-ai-hub.js`
+exercises the mechanism directly by adding and removing one at runtime, so it's proven to work the
+first time a real one is needed.
+
+### How a card gets from `capabilities/*.json` to the response
+
+For every capability, in order:
+
+1. **Card shape validation** — `type` is one of the four; `section`/`icon` are non-empty strings;
+   `copyKeys` values and `fallbackText` locale maps are well-formed; `sheetId`/`destination` are
+   `null` or in the allowed sets above; `sheet` requires `sheetId`, `link` requires `destination`,
+   `inline`/`input` require neither. **A card that fails any of this is skipped and logged loudly —
+   never a `500` for the rest of the hub.**
+2. **The `receipt_scan`/`form_coach` image-only guard** (above) — independent of step 1's generic
+   type check.
+3. **Visibility gates** — omitted (not an error) if the capability is `enabled:false`, the caller's
+   `X-Plyndi-App-Version` is below `minAppVersion`, or its feature id is `false` in
+   `remote-config.json`. These are the **exact same three checks** `POST /v1/ai/run` enforces, so a
+   card the app would be refused for running is never shown in the first place. A
+   missing/unparseable version header fails **open** (card stays visible), same convention as
+   `/v1/config` and `/v1/ai/run`.
+4. **Section lookup** — a card whose `section` isn't one of `hub.json`'s declared section ids is
+   skipped and logged (it would have nowhere to render).
+
+Sections with zero visible cards after all of the above are omitted from the response entirely — an
+empty section header is not useful UI. Sections are sorted by `order`, cards within a section by
+their own `order`, both stable across repeated calls (ties break on id, so ordering is deterministic
+even if two entries share an `order` value).
+
+### Reload, fallback, and caching — the same pattern as `/v1/config`, reused rather than invented twice
+
+- **Boot-load + in-memory cache + `SIGHUP` reload**: editing `hub.json` and sending
+  `kill -HUP <pid>` reloads it with no restart. `remote-config.json`'s feature flags are read
+  independently here (not by importing anything from `src/routes/config.js`, which this phase does
+  not touch) and reload on the same `SIGHUP`. Capability cards reload via
+  `capabilityRegistry.js`'s own existing `SIGHUP` listener — nothing new was added there.
+- **If `hub.json` is missing or malformed**, the server logs it loudly and serves a minimal catalog
+  derived from whatever `section` ids the (independently validated) capability cards actually use —
+  never a blank Premium screen over a config typo. `module.exports.isFallback()` reports this state
+  for tests; production code never needs it.
+- **Caching**: `ETag` + `Cache-Control: no-cache`, `If-None-Match` → `304` — identical reasoning to
+  `/v1/config`: the client keeps its own `ttlSeconds` disk cache, so an HTTP `max-age` would stack a
+  second, invisible staleness layer on top of it and could hide an urgent card change. The `ETag`
+  legitimately varies with the caller's `X-Plyndi-App-Version`, the same way `/v1/config`'s
+  `updateRequired`/`updateRecommended` already do.
+
+### Verifying `copyKeys` against the real app
+
+`scripts/test-ai-hub.js` reads the iOS app's `AppStore.swift` directly and greps
+`enum CopyKey: String, CaseIterable { ... }` for every `case <name>` it declares, then checks that
+every card's `copyKeys` value is one of them. It looks for the file at, in order: the
+`PLYNDI_IOS_APPSTORE_SWIFT` env var, `~/Manus/Plyndi/Plyndi/AppStore.swift`, and two `../`-relative
+guesses from this repo's root — and **skips this one check (not the whole suite)** with a clear
+message if none exist, since a checkout of the separate iOS repo isn't guaranteed to be available
+wherever this backend's tests run. On a machine with both repos checked out (as in this phase's own
+verification), it runs for real and every one of the nine cards' `copyKeys` passed:
+
+`aiBudgetInsights`, `aiBudgetInsightsSubtitle`, `aiPlanMyDay`, `aiHubOpenLabel` (×2, reused by
+`daily_plan` and `shopping_suggestions` — it's the same "Open" label `AIHubView.swift` already
+shows under those two today), `aiShoppingSuggestions`, `quickAddTitle`, `aiTravelRecommendations`,
+`aiHubAvailableInTravel`, `workoutGenerator`, `formCheck`, `aiHubAvailableInFitness` (×2, reused by
+`workout_plan` and `form_coach`), `readinessScore`, `readinessScoreSubtitle`.
+
+**Two cards have no existing `CopyKey` that fits and use `fallbackText` instead** — both are new to
+the hub (their capabilities were previously link-only or absent from it entirely, so the app has
+never shipped hub-card copy for them):
+
+- `quick_add_parse` — title reuses the real `quickAddTitle` ("Quick Add"), but no existing key
+  describes what typing into Quick Add does, so its subtitle is `fallbackText`.
+- `receipt_scan` — no existing key names this feature as a hub card at all (only the in-sheet menu
+  options "Take Photo"/"Choose from Library"/"Import from Files" exist), so **both** its title and
+  subtitle are `fallbackText`.
+
+Run `node scripts/test-ai-hub.js` (or `npm test`, which now also runs it) for the full smoke test:
+the `copyKeys` check above, the `receipt_scan`/`form_coach` type guard, a live server exercising the
+`enabled`/`minAppVersion`/feature-flag gates with `SIGHUP`-equivalent in-process reloads (no
+restart), a malformed card being skipped without taking the other eight down, a missing/corrupt
+`hub.json` still serving a valid non-empty catalog, `ETag`/`304`, stable ordering across repeated
+calls, and the `staticCards` mechanism actually merging a card in and back out.
 
 ## Versioned sync backups
 

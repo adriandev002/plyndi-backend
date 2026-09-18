@@ -27,5 +27,15 @@
         "description": "Base64-encoded JPEG of the sampled camera frame. KNOWN GAP (see README/PR description): providerGateway.generate() is text-only in Phase 1-A — this field is validated but not yet forwarded to a vision-capable provider call. The original Swift service also called GeminiClient directly with no cross-provider fallback and maxAttempts:1; that single-provider, no-retry behavior is not replicated by the generic gateway either and would need its own follow-up decision."
       }
     }
+  },
+  "card": {
+    "type": "link",
+    "section": "fitness",
+    "order": 20,
+    "icon": "camera.viewfinder",
+    "copyKeys": { "title": "formCheck", "subtitle": "aiHubAvailableInFitness" },
+    "fallbackText": null,
+    "sheetId": null,
+    "destination": "fitness"
   }
 }

@@ -14,6 +14,7 @@ const placesRoute = require('./routes/places');
 const syncRoute = require('./routes/sync');
 const configRoute = require('./routes/config');
 const aiRunRoute = require('./routes/aiRun');
+const aiHubRoute = require('./routes/aiHub');
 const affiliateRoute = require('../routes/affiliateRoutes');
 
 const app = express();
@@ -60,6 +61,8 @@ app.use('/v1/places', placesRoute);
 app.use('/v1/sync', syncRoute);
 // Capability registry runner (Phase 1-A) — POST /v1/ai/run, GET /v1/ai/runs.
 app.use('/v1/ai', aiRunRoute);
+// Server-driven hub catalog (Phase 2-A) — GET /v1/ai/hub.
+app.use('/v1/ai/hub', aiHubRoute);
 // Regional affiliate recommendations return all three provider options in one call.
 app.use('/api/v1/planner', affiliateRoute);
 app.use('/v1/planner', affiliateRoute);

@@ -46,5 +46,15 @@
       "injuryHistory": { "type": "string", "maxLength": 500, "nullable": true },
       "availableMinutes": { "type": "integer" }
     }
+  },
+  "card": {
+    "type": "link",
+    "section": "fitness",
+    "order": 10,
+    "icon": "figure.strengthtraining.traditional",
+    "copyKeys": { "title": "workoutGenerator", "subtitle": "aiHubAvailableInFitness" },
+    "fallbackText": null,
+    "sheetId": null,
+    "destination": "fitness"
   }
 }

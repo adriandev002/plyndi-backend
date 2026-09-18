@@ -30,5 +30,24 @@
         "description": "Base64-encoded JPEG/PNG of the receipt. KNOWN GAP (see README/PR description): providerGateway.generate() is text-only in Phase 1-A — this field is validated but not yet forwarded to a vision-capable provider call. Wiring an image path through providerGateway is follow-up work, not done in this phase."
       }
     }
+  },
+  "card": {
+    "type": "link",
+    "section": "planning",
+    "order": 40,
+    "icon": "camera.viewfinder",
+    "copyKeys": {},
+    "fallbackText": {
+      "title": {
+        "en": "Scan a Receipt",
+        "zh-Hant": "掃描收據"
+      },
+      "subtitle": {
+        "en": "Snap a photo — Plyndi fills in the expense.",
+        "zh-Hant": "拍張照,Plyndi 自動幫你填好支出。"
+      }
+    },
+    "sheetId": null,
+    "destination": "quickAdd"
   }
 }

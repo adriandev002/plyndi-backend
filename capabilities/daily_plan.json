@@ -48,5 +48,15 @@
         }
       }
     }
+  },
+  "card": {
+    "type": "sheet",
+    "section": "planning",
+    "order": 10,
+    "icon": "calendar.badge.clock",
+    "copyKeys": { "title": "aiPlanMyDay", "subtitle": "aiHubOpenLabel" },
+    "fallbackText": null,
+    "sheetId": "dailyPlan",
+    "destination": null
   }
 }

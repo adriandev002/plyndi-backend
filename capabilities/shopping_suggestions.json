@@ -49,5 +49,15 @@
         }
       }
     }
+  },
+  "card": {
+    "type": "sheet",
+    "section": "planning",
+    "order": 20,
+    "icon": "cart.badge.plus",
+    "copyKeys": { "title": "aiShoppingSuggestions", "subtitle": "aiHubOpenLabel" },
+    "fallbackText": null,
+    "sheetId": "shoppingAssistant",
+    "destination": null
   }
 }
