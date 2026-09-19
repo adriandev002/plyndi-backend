@@ -64,6 +64,13 @@ function validate(schema, value, pathLabel = 'context') {
 
   if (type === 'string') {
     if (typeof value !== 'string') return `${pathLabel} must be a string`;
+    // Trimmed length, not raw length — a required free-text field (e.g. ask_router's "text",
+    // Phase 5-A) must reject "   " the same way it rejects "", before any provider call. Nothing
+    // before Phase 5-A needed this keyword; it's purely additive and only checked when a schema
+    // node opts in.
+    if (typeof schema.minLength === 'number' && value.trim().length < schema.minLength) {
+      return `${pathLabel} must be at least ${schema.minLength} non-whitespace character(s)`;
+    }
     if (typeof schema.maxLength === 'number' && value.length > schema.maxLength) {
       return `${pathLabel} must be at most ${schema.maxLength} characters`;
     }

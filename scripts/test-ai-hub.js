@@ -200,8 +200,15 @@ async function main() {
       check(`response has key "${key}"`, baseline.json && Object.prototype.hasOwnProperty.call(baseline.json, key));
     }
     const baselineIds = cardIds(baseline.json.sections).sort();
-    const allCapIds = registry.all().map((c) => c.id).sort();
+    // Phase 5-A added `ask_router` to the registry with NO `card` block at all (it's invoked from
+    // the hub's search bar, not rendered as its own card — see capabilityRegistry.js's header
+    // comment) — the exact same "no card" shape daily_brief already has, except daily_brief is
+    // never loaded into this registry at all, so it never reached this comparison. `ask_router`
+    // genuinely is loaded here, so `registry.all()` is no longer "every capability has a card";
+    // filter to the ones that declare one before comparing to what the hub actually rendered.
+    const allCapIds = registry.all().filter((c) => c.card).map((c) => c.id).sort();
     assertEqual('every enabled capability with a valid card is present at app version 1.0', JSON.stringify(baselineIds), JSON.stringify(allCapIds));
+    check('ask_router is loaded but never appears as a hub card', !baselineIds.includes('ask_router') && registry.all().some((c) => c.id === 'ask_router' && !c.card));
 
     console.log('\n=== every card type is one of the four fixed ones; sheetId/destination in the allowed set ===');
     for (const section of baseline.json.sections) {
