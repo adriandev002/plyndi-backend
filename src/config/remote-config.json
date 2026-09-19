@@ -14,7 +14,8 @@
     "workout_plan": true,
     "form_coach": true,
     "readiness": true,
-    "daily_brief": true
+    "daily_brief": true,
+    "ask_router": true
   },
   "messages": {
     "banner": null

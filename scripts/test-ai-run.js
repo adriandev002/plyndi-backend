@@ -94,14 +94,15 @@ const authHeaders = (extra) => Object.assign({ 'X-Plyndi-Client-Key': CLIENT_KEY
 
 async function main() {
   // ---------------------------------------------------------------------------
-  // 2. Every one of the nine capability files loads and validates.
+  // 2. Every one of the ten capability files loads and validates (nine from Phase 1-A plus
+  //    ask_router, added in Phase 5-A — Plyndi-AI-Hub-Design.md §3.2).
   // ---------------------------------------------------------------------------
-  console.log('\n=== capability registry: all nine load ===');
+  console.log('\n=== capability registry: all ten load ===');
   const registry = require('../src/lib/capabilityRegistry');
   const FROZEN = [...registry.FROZEN_CAPABILITY_IDS].sort();
   const loadedIds = registry.all().map((c) => c.id).sort();
-  assertEqual('9 capability files loaded', loadedIds.length, 9);
-  assertEqual('loaded ids match the nine frozen ids exactly', JSON.stringify(loadedIds), JSON.stringify(FROZEN));
+  assertEqual('10 capability files loaded', loadedIds.length, 10);
+  assertEqual('loaded ids match the ten frozen ids exactly', JSON.stringify(loadedIds), JSON.stringify(FROZEN));
 
   console.log('\ncapabilities/ ids                 remote-config.json feature ids');
   const remoteConfig = require('../src/config/remote-config.json');
@@ -109,8 +110,11 @@ async function main() {
   // though capabilityRegistry.js deliberately never loads capabilities/daily_brief.json — see
   // that file's header comment for why (it must not become reachable through the generic
   // POST /v1/ai/run). Excluded here for the same reason `ai_hub` (the umbrella switch, also not a
-  // capability file) already was, so this stays a check of the nine registry-loaded ids
-  // specifically, not a full-catalog diff.
+  // capability file) already was, so this stays a check of the ten registry-loaded ids
+  // specifically, not a full-catalog diff. `ask_router` (Phase 5-A) is NOT excluded here — unlike
+  // daily_brief, it IS loaded through the registry and IS reachable through POST /v1/ai/run (that
+  // is the whole point of building it as a capability), so it must appear on both sides of this
+  // comparison.
   const configIds = Object.keys(remoteConfig.features).filter((k) => k !== 'ai_hub' && k !== 'daily_brief').sort();
   for (let i = 0; i < Math.max(loadedIds.length, configIds.length); i += 1) {
     console.log(`  ${(loadedIds[i] || '').padEnd(28)} ${configIds[i] || ''}`);
@@ -118,7 +122,7 @@ async function main() {
   assertEqual('capabilities/ ids match remote-config.json feature ids exactly', JSON.stringify(loadedIds), JSON.stringify(configIds));
 
   // ---------------------------------------------------------------------------
-  // 3. A malformed capability file is skipped; the other eight still load; server still boots.
+  // 3. A malformed capability file is skipped; the other nine still load; server still boots.
   // ---------------------------------------------------------------------------
   console.log('\n=== malformed capability file is skipped, not fatal ===');
   const badFile = path.join(CAPABILITIES_DIR, '_test_malformed.json');
@@ -129,11 +133,11 @@ async function main() {
   registry.loadCapabilities();
   console.error = originalConsoleError;
   const afterBadFile = registry.all().map((c) => c.id).sort();
-  assertEqual('still exactly 9 valid capabilities loaded (bad file skipped)', afterBadFile.length, 9);
+  assertEqual('still exactly 10 valid capabilities loaded (bad file skipped)', afterBadFile.length, 10);
   check('a SKIPPING log line was printed for the malformed file', loggedSkip.includes('SKIPPING _test_malformed.json'), loggedSkip);
   fs.unlinkSync(badFile);
   registry.loadCapabilities();
-  assertEqual('back to 9 after removing the malformed file', registry.all().length, 9);
+  assertEqual('back to 10 after removing the malformed file', registry.all().length, 10);
 
   const port = await new Promise((resolve) => {
     const server = app.listen(0, () => resolve(server.address().port));

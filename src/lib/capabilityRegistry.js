@@ -2,13 +2,24 @@
 // pattern src/routes/config.js already established for remote-config.json, reused rather than
 // invented twice.
 //
-// The nine capability ids are FROZEN (Plyndi-AI-Hub-Design.md §10): they're already hardcoded in
-// shipped Swift call sites and in remote-config.json's feature flags. A capability file whose id
-// isn't one of these nine (or whose filename doesn't match its own id) fails validation.
+// The original nine capability ids are FROZEN (Plyndi-AI-Hub-Design.md §10): they're already
+// hardcoded in shipped Swift call sites and in remote-config.json's feature flags and must never
+// be renamed. Phase 5-A adds a tenth, `ask_router` (Plyndi-AI-Hub-Design.md §3.2) — the "Ask
+// Plyndi" intent router. It is a genuinely new capability, not a rename of an existing one, so
+// adding it to this set is safe under the freeze rule; once shipped it becomes just as frozen as
+// the original nine. A capability file whose id isn't in this set (or whose filename doesn't
+// match its own id) fails validation.
 //
 // A malformed capability file is SKIPPED with a loud log, never a boot failure — one bad file
-// must not take the other eight down with it, same reasoning config.js's permissive fallback
+// must not take the other nine down with it, same reasoning config.js's permissive fallback
 // documents for remote-config.json.
+//
+// ask_router note: unlike every other capability here, it has no `card` block — it is invoked
+// from the hub's search bar, not rendered as its own card, so src/routes/aiHub.js's card loop
+// skips it with one harmless, expected "missing card block" log line per /v1/ai/hub request (the
+// same non-bug already documented for daily_brief, except ask_router — unlike daily_brief — really
+// is loaded here, so that log line genuinely fires; see scripts/test-ai-hub.js's `allCapIds`
+// computation, which accounts for this).
 //
 // Phase 4-A note: `daily_brief` (Plyndi-AI-Hub-Design.md §3.1) is DELIBERATELY NOT loaded through
 // this registry, even though capabilities/daily_brief.json exists and follows the same file
@@ -36,6 +47,7 @@ const FROZEN_CAPABILITY_IDS = new Set([
   'workout_plan',
   'form_coach',
   'readiness',
+  'ask_router',
 ]);
 
 let capabilities = new Map();
@@ -43,7 +55,7 @@ let capabilities = new Map();
 function validationError(id, parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'not a JSON object';
   if (parsed.id !== id) return `"id" field ("${parsed.id}") does not match filename ("${id}.json")`;
-  if (!FROZEN_CAPABILITY_IDS.has(parsed.id)) return `"${parsed.id}" is not one of the nine frozen capability ids`;
+  if (!FROZEN_CAPABILITY_IDS.has(parsed.id)) return `"${parsed.id}" is not one of the ten frozen capability ids`;
   if (typeof parsed.version !== 'number' || !Number.isFinite(parsed.version)) return '"version" must be a number';
   if (parsed.profile !== 'fast' && parsed.profile !== 'rich') return '"profile" must be "fast" or "rich"';
   if (!Number.isInteger(parsed.maxOutputTokens) || parsed.maxOutputTokens <= 0) {
