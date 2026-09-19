@@ -8,7 +8,7 @@
   "enabled": true,
   "minAppVersion": "1.0",
   "systemPrompt": "You are a helpful assistant inside the Plyndi app. Follow the instructions exactly and respond with valid JSON only, matching the requested shape.",
-  "userPromptTemplate": "You are a supportive productivity coach inside the Plyndi app, with today's date being {{context.todayDate}}. Look at this person's currently active to-do list, given below as a JSON array of {title, priority, dueDate, notes}, and suggest how to tackle today.\n\nActive tasks: {{context.tasks}}\n\nRequirements:\n- orderedTasks: re-order the given tasks (use the exact titles given, don't invent new tasks) into a sensible sequence for today, factoring in priority and due dates. Give each a short suggestedTimeBlock (e.g. \"Morning\", \"Before 3pm\", \"Any time today\") and a one-sentence reason tied to its priority/due date. If there are more than 6 tasks, only include the most urgent/important 6.\n- summary: one encouraging sentence framing today's plan.\n- productivityTips (2-3 items): short, concrete, specific to the tasks given — not generic advice like \"stay focused.\"\n- If there are no active tasks, keep orderedTasks empty and make summary/productivityTips about planning ahead instead.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"summary\": \"String\",\n  \"orderedTasks\": [ { \"title\": \"String\", \"suggestedTimeBlock\": \"String\", \"reason\": \"String\" } ],\n  \"productivityTips\": [ \"String\" ]\n}",
+  "userPromptTemplate": "You are a supportive productivity coach inside the Plyndi app, with today's date being {{context.todayDate}}. Look at this person's currently active to-do list, given below as a JSON array of {title, priority, dueDate, notes}, and suggest how to tackle today.\n\nActive tasks: {{context.tasks}}\n\nRequirements:\n- orderedTasks: re-order the given tasks (use the exact titles given, don't invent new tasks) into a sensible sequence for today, factoring in priority and due dates. Give each a short suggestedTimeBlock (e.g. \"Morning\", \"Before 3pm\", \"Any time today\") and a one-sentence reason tied to its priority/due date. If there are more than 6 tasks, only include the most urgent/important 6.\n- summary: one encouraging sentence framing today's plan.\n- productivityTips (2-3 items): short, concrete, specific to the tasks given — not generic advice like \"stay focused.\"\n- If there are no active tasks, keep orderedTasks empty and make summary/productivityTips about planning ahead instead.\n\nWrite summary, each task's suggestedTimeBlock and reason, and productivityTips entirely in the language identified by locale {{context.locale}}. If locale is null, respond in English. The one exception is \"title\" in orderedTasks: copy it back exactly as given above, in whatever language it was written in — never translate or rephrase it, since the app matches it against the user's own task list by that exact text.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"summary\": \"String\",\n  \"orderedTasks\": [ { \"title\": \"String\", \"suggestedTimeBlock\": \"String\", \"reason\": \"String\" } ],\n  \"productivityTips\": [ \"String\" ]\n}",
   "jsonSchema": {
     "type": "OBJECT",
     "properties": {
@@ -47,7 +47,8 @@
             "notes": { "type": "string", "maxLength": 400 }
           }
         }
-      }
+      },
+      "locale": { "type": "string", "maxLength": 35, "nullable": true }
     }
   },
   "card": {

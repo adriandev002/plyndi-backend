@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { validate: validateContext } = require('../src/lib/jsonSchemaLite');
 
 const ROOT = path.join(__dirname, '..');
 const CAPABILITIES_DIR = path.join(ROOT, 'capabilities');
@@ -277,6 +278,78 @@ async function main() {
   }
   assertEqual('/v1/generate returns the stubbed text', genRes.json && genRes.json.text, JSON.stringify({ summary: 'ok', days: [] }));
   assertEqual('provider called exactly once for a clean success', providerCallCount, 1);
+
+  // ---------------------------------------------------------------------------
+  // 13. Every one of the ten capabilities instructs a response language for its user-facing prose
+  //     ("AI results come back in English regardless of app locale" bug fix). Nine reference
+  //     {{context.locale}} directly. trip_itinerary_day is the one deliberate exception: its
+  //     language field was already wired up correctly before this fix, under a different name
+  //     (context.responseLanguage, required in its own contextSchema and populated directly by the
+  //     iOS trip planner) — it is a reference implementation, not one of the gaps being closed here,
+  //     so it is asserted against its own existing placeholder instead of being rewritten to match.
+  // ---------------------------------------------------------------------------
+  console.log('\n=== every capability instructs a response language (all ten, not just the six fixed) ===');
+  const LANGUAGE_PLACEHOLDER_BY_ID = {
+    trip_itinerary_day: '{{context.responseLanguage}}',
+  };
+  for (const cap of registry.all()) {
+    const placeholder = LANGUAGE_PLACEHOLDER_BY_ID[cap.id] || '{{context.locale}}';
+    check(`${cap.id} userPromptTemplate references ${placeholder}`, cap.userPromptTemplate.includes(placeholder));
+  }
+
+  // ---------------------------------------------------------------------------
+  // 14. Machine-consumed fields stay canonical: quick_add_parse and receipt_scan explicitly tell
+  //     the model NOT to translate the values the app matches against its own fixed taxonomies
+  //     (type/category/paymentMethod/destination, and the receipt's merchant name/category) —
+  //     translating one of these would make the app's matching silently fail.
+  // ---------------------------------------------------------------------------
+  console.log('\n=== machine-consumed fields are explicitly protected from translation ===');
+  const quickAddCap = registry.get('quick_add_parse');
+  check(
+    'quick_add_parse: explicit "never translate" instruction names type/category/paymentMethod/destination',
+    quickAddCap.userPromptTemplate.includes('Never translate or rephrase "type", "category", "paymentMethod", or "destination"')
+  );
+  const receiptScanCap = registry.get('receipt_scan');
+  check(
+    'receipt_scan: explicit "never translate" instruction for the merchant name',
+    receiptScanCap.userPromptTemplate.includes('never translate it, since it\'s a real business name')
+  );
+  check(
+    'receipt_scan: explicit "never translate" instruction for category',
+    receiptScanCap.userPromptTemplate.includes('Never translate "category"')
+  );
+
+  // ---------------------------------------------------------------------------
+  // 15. shopping_suggestions (Bug 2: USD-at-US-prices) — currencyCode/regionCode are OPTIONAL and
+  //     the rendered prompt is valid with either present or absent.
+  // ---------------------------------------------------------------------------
+  console.log('\n=== shopping_suggestions: currencyCode/regionCode are optional context ===');
+  const shoppingCap = registry.get('shopping_suggestions');
+  const baseShoppingContext = {
+    toBuyTotal: 12.5,
+    currencySymbol: '$',
+    toBuyItems: [{ name: 'Milk', category: 'Groceries', cost: 4 }],
+  };
+
+  const withCurrencyRegion = { ...baseShoppingContext, currencyCode: 'TWD', regionCode: 'TW', locale: '繁體中文' };
+  const problemWith = validateContext(shoppingCap.contextSchema, withCurrencyRegion);
+  check('contextSchema accepts a context WITH currencyCode/regionCode/locale', problemWith === null, problemWith);
+  const renderedWith = renderPromptTemplate(shoppingCap.userPromptTemplate, withCurrencyRegion);
+  check('rendered prompt WITH currency/region carries the ISO currency code', renderedWith.includes('"TWD"'));
+  check('rendered prompt WITH currency/region carries the region code', renderedWith.includes('"TW"'));
+  check('rendered prompt WITH currency/region has no unresolved {{context.…}} placeholder left', !/\{\{\s*context\./.test(renderedWith));
+
+  const problemWithout = validateContext(shoppingCap.contextSchema, baseShoppingContext);
+  check('contextSchema accepts a context WITHOUT currencyCode/regionCode/locale (all optional)', problemWithout === null, problemWithout);
+  const renderedWithout = renderPromptTemplate(shoppingCap.userPromptTemplate, baseShoppingContext);
+  check('rendered prompt WITHOUT currency/region has no unresolved {{context.…}} placeholder left', !/\{\{\s*context\./.test(renderedWithout));
+  check('absent currencyCode renders as JSON null (never a made-up code)', renderedWithout.includes('currency code null'));
+  check('absent regionCode renders as JSON null and the prompt still tells the model not to assume the US', renderedWithout.includes('PRICING REGION: null') && renderedWithout.includes('do not assume any particular country'));
+
+  console.log('\n--- shopping_suggestions rendered prompt WITH currencyCode/regionCode ---');
+  console.log(renderedWith);
+  console.log('\n--- shopping_suggestions rendered prompt WITHOUT currencyCode/regionCode ---');
+  console.log(renderedWithout);
 
   console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);
   process.exitCode = failures === 0 ? 0 : 1;
