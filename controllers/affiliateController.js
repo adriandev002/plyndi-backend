@@ -8,7 +8,23 @@ const PROVIDERS_BY_REGION = {
 };
 
 const CURRENCY_BY_REGION = { ASIA: 'USD', US: 'USD', EU: 'EUR', AU: 'AUD' };
-const PROVIDER_PRICE_MULTIPLIER = { 'Trip.com': 0.92, Agoda: 0.95, 'Booking.com': 1, Expedia: 0.97, Skyscanner: 0.94, Priceline: 0.96, Webjet: 0.93 };
+
+// ============================================================================
+// NO PRICES, NO RATINGS, NO BADGES. Read this before adding a field.
+// ----------------------------------------------------------------------------
+// Until 21 Sep 2026 this file computed a "price" from `origin.length +
+// destination.length` multiplied by a per-provider constant, and returned it as
+// `priceLabel: "from US$412"` alongside `badge: "BEST DEAL"` and `rating: 4.8`.
+// Those numbers were invented. Presenting invented prices and ratings as offers
+// is an App Review 2.3 (Accurate Metadata) rejection and a consumer-protection
+// problem in TW and the EU.
+//
+// This endpoint may only return: the provider name, a neutral title/subtitle,
+// and a deep link. Any price, rating, badge, discount or availability claim has
+// to come from a provider API response. We do not have such an API. If one is
+// added later, pass its values through verbatim and cite the source field —
+// never derive, estimate, round or embellish them here.
+// ============================================================================
 
 function clean(value, max = 120) {
   return String(value || '').trim().replace(/[<>]/g, '').slice(0, max);
@@ -21,24 +37,13 @@ function parseDates(value) {
   return { raw: dates, start: parts[0] || '', end: parts[1] || '' };
 }
 
-function basePrice(category, origin, destination) {
-  const routeDistance = Math.max(1, origin.length + destination.length);
-  return category === 'hotel' ? 95 + routeDistance * 3 : 180 + routeDistance * 11;
-}
-
-function createRecommendation(provider, category, params, index) {
-  const price = Math.round(basePrice(category, params.origin, params.destination) * (PROVIDER_PRICE_MULTIPLIER[provider] || 1) + index * 7);
-  const isBest = index === 0;
+function createRecommendation(provider, category, params) {
   return {
     provider,
-    price,
-    currency: params.currency,
-    priceLabel: `from ${new Intl.NumberFormat('en-US', { style: 'currency', currency: params.currency, maximumFractionDigits: 0 }).format(price)}`,
-    badge: isBest ? 'BEST DEAL' : index === 1 ? 'TOP PICK 4.8★' : 'POPULAR',
-    rating: index === 1 ? 4.8 : index === 0 ? 4.7 : 4.5,
     title: category === 'hotel' ? `${params.destination} hotel stays` : `${params.origin} → ${params.destination}`,
-    subtitle: category === 'hotel' ? `Flexible stays near ${params.destination}` : `Flexible fares for ${params.dates || 'your selected dates'}`,
-    isEstimated: true,
+    subtitle: category === 'hotel'
+      ? `Search stays in ${params.destination} on ${provider}`
+      : `Search fares for ${params.dates || 'your selected dates'} on ${provider}`,
     affiliateUrl: generateAffiliateLink(provider, category, params)
   };
 }
@@ -54,7 +59,7 @@ function getAffiliateRecommendations(req, res) {
   const region = req.geo?.region || 'US';
   const providers = PROVIDERS_BY_REGION[region] || PROVIDERS_BY_REGION.US;
   const params = { origin, destination, dates: dates.raw, checkout: dates.end, currency: CURRENCY_BY_REGION[region] };
-  const recommendations = providers.map((provider, index) => createRecommendation(provider, category, params, index));
+  const recommendations = providers.map((provider) => createRecommendation(provider, category, params));
 
   return res.json({
     version: '1.0',
@@ -65,7 +70,7 @@ function getAffiliateRecommendations(req, res) {
     providers,
     recommendations,
     generatedAt: new Date().toISOString(),
-    pricingNote: 'Prices are indicative estimates. Final availability, taxes, and prices are shown by the provider.'
+    pricingNote: 'Plyndi does not quote prices. Availability, taxes and prices are shown by the provider after you follow the link.'
   });
 }
 

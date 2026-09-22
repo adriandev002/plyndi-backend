@@ -45,3 +45,14 @@ services:
         value: "false"
       - key: AI_DAILY_CREDIT_CAP
         value: "2000"
+      # Explore feed (Phase 2). PUBLIC_BASE_URL left sync:false — set it to this service's real
+      # Render URL once known (e.g. https://plyndi-backend.onrender.com); unset is safe too, it
+      # falls back to deriving the origin from each request (see src/routes/content.js).
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: CONTENT_TTL_SECONDS
+        value: "900"
+      # Required for /v1/admin/* (the separate Phase 3 admin app) to work at all — unset leaves
+      # every admin route returning 503 (see src/routes/admin.js).
+      - key: ADMIN_TOKEN
+        sync: false

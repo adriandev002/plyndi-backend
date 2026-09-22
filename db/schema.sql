@@ -112,3 +112,70 @@ CREATE TABLE IF NOT EXISTS ai_briefs (
 -- cron-enforced (this repo's anti-goals explicitly rule out adding a cron here). This index is
 -- what a future prune job would scan.
 CREATE INDEX IF NOT EXISTS ai_briefs_created_at ON ai_briefs (created_at);
+
+-- ============================================================================
+-- Explore feed (Phase 2 — GET /v1/content/explore, GET /r/:cardId, /v1/admin/explore-cards).
+-- Three new CREATE TABLE IF NOT EXISTS blocks, additive only, same rule as every block above:
+-- never edit or rebuild ai_runs/ai_credit_ledger/users_ai/ai_briefs to add these.
+--
+-- NO price, rating, badge or discount column anywhere below, on purpose. Read
+-- controllers/affiliateController.js's header comment: Phase 0 deleted invented pricing from the
+-- affiliate recommendations endpoint because presenting invented numbers as offers is an App
+-- Review 2.3 rejection and a consumer-protection problem in TW and the EU. Leaving those columns
+-- out of this schema is what stops them coming back through this feed instead.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS explore_cards (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('editorial', 'affiliate', 'firstParty')),
+  category TEXT NOT NULL CHECK (category IN ('travel', 'hotels', 'lifestyle')),
+  image_url TEXT,
+  image_height INTEGER NOT NULL DEFAULT 160,
+  icon TEXT NOT NULL,
+  target_url TEXT,
+  navigate_to TEXT,
+  min_app_version TEXT NOT NULL DEFAULT '0.0.0',
+  -- NULL means "every region" — never an empty array, which would instead mean "no region at
+  -- all", i.e. a card nothing could ever match. GET /v1/content/explore's region filter treats
+  -- NULL and only NULL as the everywhere case (see src/routes/content.js).
+  regions TEXT[],
+  weight INTEGER NOT NULL DEFAULT 0,
+  published BOOLEAN NOT NULL DEFAULT false,
+  publish_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Powers GET /v1/content/explore's listing query (published + in-window rows, newest-weight
+-- first); region and min_app_version filtering happen in application code afterward (same
+-- "SQL narrows, application code decides eligibility" split src/lib/store/postgresStore.js
+-- already uses for compareVersions elsewhere), so this index isn't a covering index — just
+-- enough to avoid a full table scan on the common case.
+CREATE INDEX IF NOT EXISTS explore_cards_published_weight ON explore_cards (published, weight DESC, created_at DESC);
+
+-- One row per (card, locale). ON DELETE CASCADE so DELETE /v1/admin/explore-cards/:id can never
+-- leave orphaned text rows behind.
+CREATE TABLE IF NOT EXISTS explore_card_text (
+  card_id TEXT NOT NULL REFERENCES explore_cards(id) ON DELETE CASCADE,
+  locale TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  cta_label TEXT NOT NULL,
+  PRIMARY KEY (card_id, locale)
+);
+
+-- Click-through log for GET /r/:cardId. Deliberately NOT a foreign key to explore_cards — a card
+-- can be deleted from the admin API later and its click history must survive that for reporting,
+-- the same reasoning ai_credit_ledger.run_id above is a plain reference, not a cascading one.
+CREATE TABLE IF NOT EXISTS explore_clicks (
+  id BIGSERIAL PRIMARY KEY,
+  card_id TEXT NOT NULL,
+  clicked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  region TEXT,
+  app_version TEXT
+);
+
+-- Powers GET /v1/admin/explore-clicks' exploreClickCounts(since) lookup.
+CREATE INDEX IF NOT EXISTS explore_clicks_card_clicked_at ON explore_clicks (card_id, clicked_at);

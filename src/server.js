@@ -18,6 +18,9 @@ const aiHubRoute = require('./routes/aiHub');
 const aiEntitlementRoute = require('./routes/aiEntitlement');
 const aiBriefRoute = require('./routes/aiBrief');
 const affiliateRoute = require('../routes/affiliateRoutes');
+const contentRoute = require('./routes/content');
+const redirectRoute = require('./routes/redirect');
+const adminRoute = require('./routes/admin');
 
 const app = express();
 
@@ -32,6 +35,20 @@ app.use(appContext);
 // No auth or rate limit on the health check — Render's own health monitor hits this, and it
 // carries no client key.
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+
+// GET /r/:cardId is the click-tracking redirect an affiliate Explore card's actionURL points at
+// (see src/routes/content.js) — it's opened directly in Safari via openURL, which has no way to
+// send X-Plyndi-Client-Key, so it has to sit ahead of requireClientKey below. It carries its own,
+// separate rate limit (src/routes/redirect.js) rather than sharing the general one.
+app.use('/r', redirectRoute);
+
+// The Explore admin API (src/routes/admin.js) is a different trust boundary from the mobile
+// client entirely — it's called by a separate Cloudflare Pages admin app (Phase 3), never by the
+// iOS/Android builds, so it has no reason to require CLIENT_SHARED_KEY and every reason not to
+// hand that secret to a second deployment. It's guarded by its own ADMIN_TOKEN instead (503 with
+// none set — see that file's header comment) and mounted here, ahead of requireClientKey, for
+// the same reason /r above is.
+app.use('/v1/admin', adminRoute);
 
 const limiter = rateLimit({
   windowMs: (Number(process.env.RATE_LIMIT_WINDOW_MINUTES) || 60) * 60 * 1000,
@@ -69,6 +86,8 @@ app.use('/v1/ai/hub', aiHubRoute);
 app.use('/v1/ai/entitlement', aiEntitlementRoute);
 // Daily Brief (Phase 4-A) — POST /v1/ai/brief/digest, GET /v1/ai/brief.
 app.use('/v1/ai/brief', aiBriefRoute);
+// Explore feed content (Phase 2) — GET /v1/content/explore.
+app.use('/v1/content', contentRoute);
 // Regional affiliate recommendations return all three provider options in one call.
 app.use('/api/v1/planner', affiliateRoute);
 app.use('/v1/planner', affiliateRoute);

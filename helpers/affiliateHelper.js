@@ -1,5 +1,11 @@
 const PROVIDER_CONFIG = {
-  'Trip.com': { flight: 'https://www.trip.com/flights', hotel: 'https://www.trip.com/hotels', env: 'TRIPCOM_AFFILIATE_WRAPPER' },
+  // No `env` entry for Trip.com — its real links (src/config/explore-seed.json's sponsored card,
+  // an opaque `/t/{code}` short link) have no documented way to append a tracked sub-id, so there
+  // is no per-provider wrapper template to fill in here. A `TRIPCOM_AFFILIATE_WRAPPER` env var
+  // used to exist for this; it was deleted rather than filled in — see
+  // src/routes/redirect.js's header comment. Falls through to the Travelpayouts marker or a
+  // direct link below, same as any other unconfigured provider.
+  'Trip.com': { flight: 'https://www.trip.com/flights', hotel: 'https://www.trip.com/hotels' },
   Agoda: { flight: 'https://www.agoda.com/flights', hotel: 'https://www.agoda.com/search', env: 'AGODA_AFFILIATE_WRAPPER' },
   'Booking.com': { flight: 'https://www.booking.com/flights', hotel: 'https://www.booking.com/searchresults.html', env: 'BOOKING_AFFILIATE_WRAPPER' },
   Expedia: { flight: 'https://www.expedia.com/Flights-Search', hotel: 'https://www.expedia.com/Hotel-Search', env: 'EXPEDIA_AFFILIATE_WRAPPER' },

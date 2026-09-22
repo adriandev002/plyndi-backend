@@ -1,0 +1,274 @@
+{
+  "cards": [
+    {
+      "id": "explore-plan-a-trip",
+      "type": "firstParty",
+      "category": "travel",
+      "imageUrl": null,
+      "imageHeight": 120,
+      "icon": "airplane.circle.fill",
+      "targetUrl": null,
+      "navigateTo": "section.travel",
+      "minAppVersion": "0.0.0",
+      "regions": null,
+      "weight": 30,
+      "published": true,
+      "publishAt": null,
+      "expiresAt": null,
+      "text": {
+        "en": {
+          "tag": "Travel Tip",
+          "title": "Make the Most of Your Next Trip",
+          "description": "Plan flights, hotels, and a day-by-day itinerary — Plyndi keeps your travel budget on track too.",
+          "ctaLabel": "Plan a Trip"
+        },
+        "zh-Hant": {
+          "tag": "旅遊小提示",
+          "title": "讓下一趟旅行更精彩",
+          "description": "規劃機票、飯店與每日行程——Plyndi 也會幫您掌控旅遊預算。",
+          "ctaLabel": "規劃旅程"
+        },
+        "zh-Hans": {
+          "tag": "旅行小贴士",
+          "title": "让下一次旅行更精彩",
+          "description": "规划机票、酒店与每日行程——Plyndi 也会帮您掌控旅行预算。",
+          "ctaLabel": "规划行程"
+        },
+        "ja": {
+          "tag": "旅行のヒント",
+          "title": "次の旅行を最大限に楽しもう",
+          "description": "フライト、ホテル、日ごとの旅程を計画しましょう。Plyndiが旅行予算の管理もサポートします。",
+          "ctaLabel": "旅行を計画する"
+        },
+        "ko": {
+          "tag": "여행 팁",
+          "title": "다음 여행을 최대한 즐겨보세요",
+          "description": "항공편, 호텔, 일별 일정을 계획해보세요. Plyndi가 여행 예산 관리도 도와드립니다.",
+          "ctaLabel": "여행 계획하기"
+        },
+        "my": {
+          "tag": "ခရီးသွားအကြံပြုချက်",
+          "title": "သင့်ရဲ့ နောက်ထပ်ခရီးစဉ်ကို အကောင်းဆုံးဖြစ်အောင်လုပ်ပါ",
+          "description": "လေယာဉ်၊ ဟိုတယ်နှင့် နေ့အလိုက်ခရီးစဉ်ကို စီစဉ်ပါ — Plyndi သည် သင့်ခရီးသွားဘတ်ဂျက်ကိုပါ ထိန်းချုပ်ပေးပါသည်။",
+          "ctaLabel": "ခရီးစဉ်စီစဉ်ရန်"
+        },
+        "th": {
+          "tag": "เคล็ดลับการเดินทาง",
+          "title": "เตรียมทริปหน้าให้คุ้มค่าที่สุด",
+          "description": "วางแผนเที่ยวบิน โรงแรม และตารางเดินทางรายวัน — Plyndi ยังช่วยคุมงบประมาณการเดินทางให้อยู่ในเป้าอีกด้วย",
+          "ctaLabel": "วางแผนทริป"
+        },
+        "vi": {
+          "tag": "Mẹo du lịch",
+          "title": "Tận dụng tối đa chuyến đi tiếp theo của bạn",
+          "description": "Lên kế hoạch chuyến bay, khách sạn và lịch trình theo từng ngày — Plyndi cũng giúp bạn kiểm soát ngân sách du lịch.",
+          "ctaLabel": "Lên kế hoạch chuyến đi"
+        },
+        "ar": {
+          "tag": "نصيحة سفر",
+          "title": "استفد إلى أقصى حد من رحلتك القادمة",
+          "description": "خطّط لرحلات الطيران والفنادق وخط سير يومي — وتحافظ Plyndi على ميزانية سفرك في المسار الصحيح أيضًا.",
+          "ctaLabel": "تخطيط رحلة"
+        },
+        "es": {
+          "tag": "Consejo de Viaje",
+          "title": "Aprovecha al Máximo tu Próximo Viaje",
+          "description": "Planifica vuelos, hoteles y un itinerario día a día: Plyndi también mantiene tu presupuesto de viaje bajo control.",
+          "ctaLabel": "Planificar un Viaje"
+        },
+        "de": {
+          "tag": "Reisetipp",
+          "title": "Holen Sie das Beste aus Ihrer nächsten Reise heraus",
+          "description": "Planen Sie Flüge, Hotels und einen Tag-für-Tag-Reiseplan — Plyndi behält dabei auch Ihr Reisebudget im Blick.",
+          "ctaLabel": "Reise planen"
+        },
+        "fr": {
+          "tag": "Astuce voyage",
+          "title": "Profitez au maximum de votre prochain voyage",
+          "description": "Planifiez vols, hôtels et itinéraire jour par jour — Plyndi garde aussi votre budget voyage sous contrôle.",
+          "ctaLabel": "Planifier un voyage"
+        }
+      }
+    },
+    {
+      "id": "explore-ai-insight",
+      "type": "firstParty",
+      "category": "lifestyle",
+      "imageUrl": null,
+      "imageHeight": 120,
+      "icon": "sparkles",
+      "targetUrl": null,
+      "navigateTo": "aiHub",
+      "minAppVersion": "0.0.0",
+      "regions": null,
+      "weight": 20,
+      "published": true,
+      "publishAt": null,
+      "expiresAt": null,
+      "text": {
+        "en": {
+          "tag": "AI Insight",
+          "title": "Your Personalized Insights Are Ready",
+          "description": "See AI-powered budget insights, a daily plan, and smart shopping suggestions in one place.",
+          "ctaLabel": "Open AI Hub"
+        },
+        "zh-Hant": {
+          "tag": "AI 洞察",
+          "title": "您的個人化洞察已準備就緒",
+          "description": "在同一處查看 AI 預算洞察、每日計畫與智慧購物建議。",
+          "ctaLabel": "開啟 AI 中心"
+        },
+        "zh-Hans": {
+          "tag": "AI 洞察",
+          "title": "您的个性化洞察已准备就绪",
+          "description": "在同一处查看 AI 预算洞察、每日计划与智能购物建议。",
+          "ctaLabel": "打开 AI 中心"
+        },
+        "ja": {
+          "tag": "AIインサイト",
+          "title": "あなた専用のインサイトが準備できました",
+          "description": "AIによる予算インサイト、1日の計画、賢いお買い物提案を一か所でチェック。",
+          "ctaLabel": "AIハブを開く"
+        },
+        "ko": {
+          "tag": "AI 인사이트",
+          "title": "맞춤형 인사이트가 준비되었습니다",
+          "description": "AI 예산 인사이트, 하루 계획, 스마트 쇼핑 제안을 한곳에서 확인하세요.",
+          "ctaLabel": "AI 허브 열기"
+        },
+        "my": {
+          "tag": "AI ထိုးထွင်းအမြင်",
+          "title": "သင့်ကိုယ်ပိုင် ထိုးထွင်းအမြင်များ အသင့်ဖြစ်နေပါပြီ",
+          "description": "AI ဘတ်ဂျက်ထိုးထွင်းအမြင်၊ နေ့စဉ်အစီအစဉ်နှင့် စမတ်ဈေးဝယ်အကြံပြုချက်များကို တစ်နေရာတည်းတွင် ကြည့်ရှုပါ။",
+          "ctaLabel": "AI ဗဟိုချက်ကို ဖွင့်ရန်"
+        },
+        "th": {
+          "tag": "ข้อมูลเชิงลึกจาก AI",
+          "title": "ข้อมูลเชิงลึกส่วนตัวของคุณพร้อมแล้ว",
+          "description": "ดูข้อมูลเชิงลึกด้านงบประมาณ แผนประจำวัน และคำแนะนำการช้อปปิ้งอัจฉริยะจาก AI ได้ในที่เดียว",
+          "ctaLabel": "เปิดศูนย์รวม AI"
+        },
+        "vi": {
+          "tag": "Phân tích AI",
+          "title": "Phân tích cá nhân hóa của bạn đã sẵn sàng",
+          "description": "Xem phân tích ngân sách bằng AI, kế hoạch hằng ngày và gợi ý mua sắm thông minh tại một nơi duy nhất.",
+          "ctaLabel": "Mở Trung tâm AI"
+        },
+        "ar": {
+          "tag": "رؤية ذكاء اصطناعي",
+          "title": "رؤاك المخصَّصة جاهزة",
+          "description": "اطّلع على رؤى ميزانية مدعومة بالذكاء الاصطناعي، وخطة يومية، واقتراحات تسوق ذكية في مكان واحد.",
+          "ctaLabel": "فتح مركز الذكاء الاصطناعي"
+        },
+        "es": {
+          "tag": "Información de IA",
+          "title": "Tu Información Personalizada Ya Está Lista",
+          "description": "Consulta información de presupuesto, un plan diario y sugerencias de compra inteligentes impulsados por IA, todo en un solo lugar.",
+          "ctaLabel": "Abrir Centro de IA"
+        },
+        "de": {
+          "tag": "KI-Insight",
+          "title": "Ihre personalisierten Insights sind bereit",
+          "description": "Sehen Sie KI-gestützte Budget-Insights, einen Tagesplan und intelligente Einkaufsvorschläge an einem Ort.",
+          "ctaLabel": "KI-Hub öffnen"
+        },
+        "fr": {
+          "tag": "Analyse IA",
+          "title": "Vos analyses personnalisées sont prêtes",
+          "description": "Consultez les analyses budgétaires par IA, un plan quotidien et des suggestions de courses intelligentes, le tout au même endroit.",
+          "ctaLabel": "Ouvrir l'espace IA"
+        }
+      }
+    },
+    {
+      "id": "explore-partner-hotels-tripcom",
+      "type": "affiliate",
+      "category": "hotels",
+      "imageUrl": null,
+      "imageHeight": 150,
+      "icon": "building.2.fill",
+      "targetUrl": "https://www.trip.com/t/dp53V66kCW2",
+      "navigateTo": null,
+      "minAppVersion": "0.0.0",
+      "regions": null,
+      "weight": 10,
+      "published": true,
+      "publishAt": null,
+      "expiresAt": null,
+      "text": {
+        "en": {
+          "tag": "Sponsored",
+          "title": "Hotels on Trip.com",
+          "description": "Compare places to stay for your next trip.",
+          "ctaLabel": "Compare hotels"
+        },
+        "zh-Hant": {
+          "tag": "贊助",
+          "title": "Trip.com 住宿",
+          "description": "比較下一趟旅行的住宿選擇。",
+          "ctaLabel": "比較住宿"
+        },
+        "zh-Hans": {
+          "tag": "赞助",
+          "title": "Trip.com 住宿",
+          "description": "比较下一趟旅行的住宿选择。",
+          "ctaLabel": "比较住宿"
+        },
+        "ja": {
+          "tag": "スポンサー",
+          "title": "Trip.com のホテル",
+          "description": "次の旅行の宿泊先を比較できます。",
+          "ctaLabel": "ホテルを比較"
+        },
+        "ko": {
+          "tag": "스폰서",
+          "title": "Trip.com 호텔",
+          "description": "다음 여행의 숙소를 비교해 보세요.",
+          "ctaLabel": "호텔 비교"
+        },
+        "my": {
+          "tag": "ကြော်ငြာ",
+          "title": "Trip.com ရှိ ဟိုတယ်များ",
+          "description": "နောက်ခရီးစဉ်အတွက် တည်းခိုရန်နေရာများကို နှိုင်းယှဉ်ကြည့်ပါ။",
+          "ctaLabel": "ဟိုတယ်များ နှိုင်းယှဉ်ရန်"
+        },
+        "th": {
+          "tag": "ได้รับการสนับสนุน",
+          "title": "ที่พักบน Trip.com",
+          "description": "เปรียบเทียบที่พักสำหรับทริปหน้าของคุณ",
+          "ctaLabel": "เปรียบเทียบที่พัก"
+        },
+        "vi": {
+          "tag": "Được tài trợ",
+          "title": "Khách sạn trên Trip.com",
+          "description": "So sánh chỗ nghỉ cho chuyến đi sắp tới.",
+          "ctaLabel": "So sánh khách sạn"
+        },
+        "ar": {
+          "tag": "إعلان مموّل",
+          "title": "فنادق على Trip.com",
+          "description": "قارن أماكن الإقامة لرحلتك القادمة.",
+          "ctaLabel": "مقارنة الفنادق"
+        },
+        "es": {
+          "tag": "Patrocinado",
+          "title": "Hoteles en Trip.com",
+          "description": "Compara alojamientos para tu próximo viaje.",
+          "ctaLabel": "Comparar hoteles"
+        },
+        "de": {
+          "tag": "Anzeige",
+          "title": "Hotels auf Trip.com",
+          "description": "Unterkünfte für Ihre nächste Reise vergleichen.",
+          "ctaLabel": "Hotels vergleichen"
+        },
+        "fr": {
+          "tag": "Sponsorisé",
+          "title": "Hôtels sur Trip.com",
+          "description": "Comparez les hébergements pour votre prochain voyage.",
+          "ctaLabel": "Comparer les hôtels"
+        }
+      }
+    }
+  ]
+}
