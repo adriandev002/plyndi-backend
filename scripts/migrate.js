@@ -36,7 +36,11 @@ async function main() {
   console.log(`[migrate] applying ${schemaPath} ...`);
   try {
     await pool.query(schema);
-    console.log('[migrate] done — ai_runs, ai_credit_ledger, users_ai, ai_briefs are up to date.');
+    // Report what schema.sql actually declares rather than a hardcoded list — the old message
+    // named only the four AI tables and stayed silent about the explore ones, which made a
+    // successful migration look like it had skipped them.
+    const tables = [...schema.matchAll(/CREATE TABLE IF NOT EXISTS\s+(\w+)/g)].map((m) => m[1]);
+    console.log(`[migrate] done — ${tables.length} table(s) up to date: ${tables.join(', ')}`);
   } catch (err) {
     console.error('[migrate] FAILED:', err.message);
     process.exitCode = 1;
