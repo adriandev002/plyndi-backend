@@ -30,6 +30,12 @@
 //
 // On ANY internal failure this returns 200 with `cards: []` and a real ttlSeconds, never a 500 —
 // an Explore tab with no cards degrades gracefully; one that 500s looks like the app is broken.
+// That failure answer is marked `X-Plyndi-Content-Degraded: 1` (see `sendDegraded` below) so the
+// app can tell it apart from a real empty feed and keep its cache.
+//
+// Both content GETs have their own per-IP limiter (`contentLimiter`) and are mounted in
+// src/server.js AHEAD of the general 60-an-hour limiter that guards the paid AI routes: on a
+// mobile carrier many users share one IP, and every app foreground fetches both.
 // ============================================================================
 
 const crypto = require('crypto');
@@ -89,9 +95,31 @@ function toResponseCard(card, baseUrl) {
   };
 }
 
+// Generous on purpose: this is read-only, cache-friendly content, and one carrier IP can front
+// thousands of phones. Every request counts, a cheap 304 included.
+const contentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.CONTENT_RATE_LIMIT_MAX) || 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' },
+});
+
+// The error path's "200 with an empty list". Marked degraded so the app keeps what it already
+// has instead of treating an internal failure as "the admin switched everything off"; no-store
+// so no cache in between keeps it; and NO ETag — res.end() rather than res.json() because
+// Express would otherwise attach its own weak ETag, and the app would send that back as
+// If-None-Match and get a 304 for the failure itself.
+function sendDegraded(res, body) {
+  res.removeHeader('ETag');
+  res.set('X-Plyndi-Content-Degraded', '1');
+  res.set('Cache-Control', 'no-store');
+  res.status(200).type('application/json').end(JSON.stringify(body));
+}
+
 const router = express.Router();
 
-router.get('/explore', async (req, res) => {
+router.get('/explore', contentLimiter, async (req, res) => {
   const ttlSeconds = Number(process.env.CONTENT_TTL_SECONDS) || DEFAULT_TTL_SECONDS;
   try {
     const locale = readLocale(req);
@@ -118,7 +146,7 @@ router.get('/explore', async (req, res) => {
     res.status(200).json(body);
   } catch (err) {
     console.error(`[content] GET /v1/content/explore failed: ${err.message}`);
-    res.status(200).json({ version: EXPLORE_CONTENT_VERSION, ttlSeconds, cards: [] });
+    sendDegraded(res, { version: EXPLORE_CONTENT_VERSION, ttlSeconds, cards: [] });
   }
 });
 
@@ -164,7 +192,7 @@ function toResponseBanner(banner, baseUrl) {
   };
 }
 
-router.get('/home-banners', async (req, res) => {
+router.get('/home-banners', contentLimiter, async (req, res) => {
   const ttlSeconds = Number(process.env.CONTENT_TTL_SECONDS) || DEFAULT_TTL_SECONDS;
   const intervalSeconds = homeBannerSettings.intervalSeconds();
   const aspectRatio = homeBannerSettings.aspectRatio();
@@ -197,7 +225,7 @@ router.get('/home-banners', async (req, res) => {
     res.status(200).json(body);
   } catch (err) {
     console.error(`[content] GET /v1/content/home-banners failed: ${err.message}`);
-    res.status(200).json({ intervalSeconds, aspectRatio, banners: [] });
+    sendDegraded(res, { intervalSeconds, aspectRatio, banners: [] });
   }
 });
 

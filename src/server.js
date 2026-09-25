@@ -86,6 +86,13 @@ app.use('/v1/config', configRoute);
 // up the per-IP budget that guards the paid AI routes. It has its own limiter (src/routes/content.js).
 app.use(IMPRESSIONS_PATH, contentRoute.homeBannerImpressionsRouter);
 
+// Explore feed content (Phase 2) — GET /v1/content/explore, and the Home banner carousel —
+// GET /v1/content/home-banners. Same placement and reason as the two above: every app foreground
+// fetches both, and many phones can share one carrier IP, so they must not spend the per-IP
+// budget of the paid AI routes. They carry their own, more generous limiter (`contentLimiter` in
+// src/routes/content.js). GET-only, so sanitizeBody below has nothing to do for them.
+app.use('/v1/content', contentRoute);
+
 // Everything past this point needs the shared client key (already applied above), is
 // rate-limited per IP, and has its request body sanitized — in that order — before any route
 // handler (or upstream API) sees it.
@@ -106,9 +113,6 @@ app.use('/v1/ai/hub', aiHubRoute);
 app.use('/v1/ai/entitlement', aiEntitlementRoute);
 // Daily Brief (Phase 4-A) — POST /v1/ai/brief/digest, GET /v1/ai/brief.
 app.use('/v1/ai/brief', aiBriefRoute);
-// Explore feed content (Phase 2) — GET /v1/content/explore, and the Home banner carousel —
-// GET /v1/content/home-banners.
-app.use('/v1/content', contentRoute);
 // Regional affiliate recommendations return all three provider options in one call.
 app.use('/api/v1/planner', affiliateRoute);
 app.use('/v1/planner', affiliateRoute);

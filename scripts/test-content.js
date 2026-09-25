@@ -32,6 +32,7 @@ delete process.env.DATABASE_URL;
 delete process.env.ADMIN_TOKEN;
 
 const app = require('../src/server');
+const store = require('../src/lib/store');
 
 function request(port, method, reqPath, headers, body) {
   return new Promise((resolve, reject) => {
@@ -310,6 +311,27 @@ async function main() {
         isValidNavigateTo(card.navigateTo),
         card.navigateTo
       );
+    }
+
+    // ---------------------------------------------------------------- degraded vs. real empty
+    console.log('\n=== an internal error is marked degraded; a real empty feed is not ===');
+    const realListExploreCards = store.listExploreCards;
+    try {
+      store.listExploreCards = async () => [];
+      const empty = await explore(port, '', clientHeaders());
+      check('real empty feed -> 200 with no cards', empty.status === 200 && empty.json.cards.length === 0, empty.raw.slice(0, 200));
+      assertEqual('real empty feed carries no degraded header', empty.headers['x-plyndi-content-degraded'], undefined);
+      check('real empty feed still has an ETag', Boolean(empty.headers.etag));
+
+      store.listExploreCards = async () => { throw new Error('simulated database failure'); };
+      const degraded = await explore(port, '', clientHeaders());
+      check('internal error -> 200 with no cards', degraded.status === 200 && degraded.json.cards.length === 0, degraded.raw.slice(0, 200));
+      assertEqual('internal error -> X-Plyndi-Content-Degraded: 1', degraded.headers['x-plyndi-content-degraded'], '1');
+      assertEqual('internal error -> Cache-Control: no-store', degraded.headers['cache-control'], 'no-store');
+      assertEqual('internal error -> no ETag (not even Express\'s own)', degraded.headers.etag, undefined);
+      assertEqual('internal error body is still JSON', degraded.headers['content-type'] && degraded.headers['content-type'].split(';')[0], 'application/json');
+    } finally {
+      store.listExploreCards = realListExploreCards;
     }
   } finally {
     for (const id of testCardIds) {

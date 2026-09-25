@@ -648,6 +648,27 @@ async function main() {
     check('seeding twice -> one banner, one text row', seeded.length === 1 && Object.keys(seeded[0].text).length === 1, JSON.stringify(seeded));
     await store.deleteHomeBanner('plyndi-placeholder-01');
 
+    // ---------------------------------------------------------------- degraded vs. real empty
+    console.log('\n=== an internal error is marked degraded; all banners switched off is not ===');
+    const realListHomeBanners = store.listHomeBanners;
+    try {
+      store.listHomeBanners = async () => [];
+      const empty = await feed();
+      check('all banners off -> 200 with an empty list', empty.status === 200 && empty.json.banners.length === 0, empty.raw.slice(0, 200));
+      assertEqual('all banners off carries no degraded header', empty.headers['x-plyndi-content-degraded'], undefined);
+      check('all banners off still has an ETag', Boolean(empty.headers.etag));
+
+      store.listHomeBanners = async () => { throw new Error('simulated database failure'); };
+      const degraded = await feed();
+      check('internal error -> 200 with an empty list', degraded.status === 200 && degraded.json.banners.length === 0, degraded.raw.slice(0, 200));
+      assertEqual('internal error -> X-Plyndi-Content-Degraded: 1', degraded.headers['x-plyndi-content-degraded'], '1');
+      assertEqual('internal error -> Cache-Control: no-store', degraded.headers['cache-control'], 'no-store');
+      assertEqual('internal error -> no ETag (not even Express\'s own)', degraded.headers.etag, undefined);
+      check('internal error still reports the carousel settings', degraded.json.intervalSeconds === 4 && degraded.json.aspectRatio === 3, degraded.raw);
+    } finally {
+      store.listHomeBanners = realListHomeBanners;
+    }
+
     const explore = await request(port, 'GET', '/v1/content/explore', clientHeaders());
     check('the Explore feed still serves its seeded cards', explore.status === 200 && explore.json.cards.length >= 3, explore.raw.slice(0, 200));
   } finally {
