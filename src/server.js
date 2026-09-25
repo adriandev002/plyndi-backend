@@ -29,6 +29,20 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '1mb' }));
+
+// POST /v1/content/home-banners/impressions promises the app a 204 no matter what it sends (see
+// src/routes/content.js). A body express.json() cannot parse — malformed or over the size limit —
+// fails HERE, before any route, and would otherwise reach the generic 500 handler at the bottom
+// of this file. Scoped to that one path; every other route's behaviour is unchanged.
+const IMPRESSIONS_PATH = '/v1/content/home-banners/impressions';
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (req.path === IMPRESSIONS_PATH && err && typeof err.type === 'string' && err.type.startsWith('entity.')) {
+    res.status(204).end();
+    return;
+  }
+  next(err);
+});
 app.use(requestLog);
 app.use(appContext);
 
@@ -39,7 +53,8 @@ app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 // GET /r/:cardId is the click-tracking redirect an affiliate Explore card's actionURL points at
 // (see src/routes/content.js) — it's opened directly in Safari via openURL, which has no way to
 // send X-Plyndi-Client-Key, so it has to sit ahead of requireClientKey below. It carries its own,
-// separate rate limit (src/routes/redirect.js) rather than sharing the general one.
+// separate rate limit (src/routes/redirect.js) rather than sharing the general one. The same
+// router serves GET /r/banner/:id for Home carousel banners.
 app.use('/r', redirectRoute);
 
 // The Explore admin API (src/routes/admin.js) is a different trust boundary from the mobile
@@ -66,6 +81,11 @@ app.use(requireClientKey);
 // feature has been disabled or an update is required.
 app.use('/v1/config', configRoute);
 
+// Home banner impression counts — after the client key, ahead of the general limiter, for the
+// same reason as /v1/config above: a background ping the app sends as users scroll must not use
+// up the per-IP budget that guards the paid AI routes. It has its own limiter (src/routes/content.js).
+app.use(IMPRESSIONS_PATH, contentRoute.homeBannerImpressionsRouter);
+
 // Everything past this point needs the shared client key (already applied above), is
 // rate-limited per IP, and has its request body sanitized — in that order — before any route
 // handler (or upstream API) sees it.
@@ -86,7 +106,8 @@ app.use('/v1/ai/hub', aiHubRoute);
 app.use('/v1/ai/entitlement', aiEntitlementRoute);
 // Daily Brief (Phase 4-A) — POST /v1/ai/brief/digest, GET /v1/ai/brief.
 app.use('/v1/ai/brief', aiBriefRoute);
-// Explore feed content (Phase 2) — GET /v1/content/explore.
+// Explore feed content (Phase 2) — GET /v1/content/explore, and the Home banner carousel —
+// GET /v1/content/home-banners.
 app.use('/v1/content', contentRoute);
 // Regional affiliate recommendations return all three provider options in one call.
 app.use('/api/v1/planner', affiliateRoute);

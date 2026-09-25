@@ -15,6 +15,7 @@ const path = require('path');
 const { startOfUtcDay } = require('../billingPeriod');
 const { compareVersions } = require('../semver');
 const { isValidNavigateTo } = require('../exploreDestinations');
+const { byPosition: bannerOrder } = require('../homeBanners');
 
 const MAX_RUNS = Number(process.env.AI_RUN_STORE_MAX || 500);
 const RUN_TTL_MS = Number(process.env.AI_RUN_STORE_TTL_MS || 24 * 60 * 60 * 1000);
@@ -414,6 +415,165 @@ async function exploreClickCounts({ since }) {
   return [...counts.entries()].map(([cardId, clicks]) => ({ cardId, clicks }));
 }
 
+// ---------------------------------------------------------------------------
+// Home banner carousel — GET /v1/content/home-banners, GET /r/banner/:id,
+// POST /v1/content/home-banners/impressions, /v1/admin/home-banners. Same layout as the Explore
+// maps above (rows without text; text keyed "<bannerId>::<locale>"; a flat click log), plus a
+// daily impressions map. One deliberate difference: nothing is loaded at boot. Banners come only
+// from the admin API or scripts/seed-home-banners.js, so a deploy never writes banner content.
+// ---------------------------------------------------------------------------
+
+const homeBanners = new Map(); // id -> banner fields (no `text`)
+const homeBannerText = new Map(); // "<bannerId>::<locale>" -> { title, subtitle, ctaLabel, altText, imageUrl }
+let homeBannerClicks = []; // { id, bannerId, clickedAt: Date, region, appVersion }
+let homeBannerClickSeq = 1;
+const homeBannerImpressions = new Map(); // "<bannerId>::<YYYY-MM-DD>" -> count
+
+function toBannerText(value) {
+  return {
+    title: value.title ?? null,
+    subtitle: value.subtitle ?? null,
+    ctaLabel: value.ctaLabel ?? null,
+    altText: value.altText,
+    imageUrl: value.imageUrl ?? null,
+  };
+}
+
+function putHomeBannerText(bannerId, text) {
+  for (const key of homeBannerText.keys()) {
+    if (key.startsWith(`${bannerId}::`)) homeBannerText.delete(key);
+  }
+  for (const [locale, value] of Object.entries(text)) {
+    homeBannerText.set(`${bannerId}::${locale}`, toBannerText(value));
+  }
+}
+
+function allHomeBannerTextFor(bannerId) {
+  const text = {};
+  const prefix = `${bannerId}::`;
+  for (const [key, value] of homeBannerText.entries()) {
+    if (key.startsWith(prefix)) text[key.slice(prefix.length)] = value;
+  }
+  return text;
+}
+
+// Unfiltered, for GET /v1/admin/home-banners.
+async function listAllHomeBanners() {
+  return [...homeBanners.values()].sort(bannerOrder).map((banner) => ({ ...banner, text: allHomeBannerTextFor(banner.id) }));
+}
+
+// Unfiltered single lookup — GET /r/banner/:id must still redirect for a banner that has since
+// been deactivated (the link was valid when it was shown), same as getExploreCard.
+async function getHomeBanner(id) {
+  const banner = homeBanners.get(id);
+  if (!banner) return null;
+  return { ...banner, text: allHomeBannerTextFor(id) };
+}
+
+// The public carousel: active, inside its window, shown in this language (locales NULL = every
+// language), new enough app, in position order, at most `limit`. `text` is the requested locale's
+// row, else "en"; a banner with neither is dropped.
+async function listHomeBanners({ locale = 'en', appVersion = null, now = new Date(), limit = 10 } = {}) {
+  const nowMs = (now instanceof Date ? now : new Date(now)).getTime();
+  const eligible = [...homeBanners.values()].filter((banner) => {
+    if (!banner.active) return false;
+    if (banner.startsAt && new Date(banner.startsAt).getTime() > nowMs) return false;
+    if (banner.endsAt && new Date(banner.endsAt).getTime() <= nowMs) return false;
+    if (banner.locales && !banner.locales.includes(locale)) return false;
+    // A null minAppVersion, or a caller version that can't be parsed, fails OPEN.
+    if (compareVersions(appVersion, banner.minAppVersion) === -1) return false;
+    return true;
+  });
+  eligible.sort(bannerOrder);
+  const result = [];
+  for (const banner of eligible) {
+    const text = homeBannerText.get(`${banner.id}::${locale}`) || homeBannerText.get(`${banner.id}::en`) || null;
+    if (!text) continue;
+    result.push({ ...banner, text });
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+async function upsertHomeBanner(banner) {
+  const existing = homeBanners.get(banner.id);
+  const now = Date.now();
+  const stored = {
+    id: banner.id,
+    type: banner.type,
+    partnerName: banner.partnerName ?? null,
+    position: banner.position,
+    active: banner.active,
+    startsAt: banner.startsAt ?? null,
+    endsAt: banner.endsAt ?? null,
+    minAppVersion: banner.minAppVersion ?? null,
+    imageUrl: banner.imageUrl,
+    imageHasText: banner.imageHasText ?? false,
+    textTheme: banner.textTheme ?? 'light',
+    targetUrl: banner.targetUrl ?? null,
+    navigateTo: banner.navigateTo ?? null,
+    requiresUpcomingTrip: banner.requiresUpcomingTrip ?? false,
+    locales: banner.locales ?? null,
+    createdAtMs: existing ? existing.createdAtMs : now,
+    updatedAtMs: now,
+  };
+  homeBanners.set(banner.id, stored);
+  putHomeBannerText(banner.id, banner.text || {});
+  return { ...stored, text: allHomeBannerTextFor(banner.id) };
+}
+
+async function deleteHomeBanner(id) {
+  const existed = homeBanners.delete(id);
+  for (const key of homeBannerText.keys()) {
+    if (key.startsWith(`${id}::`)) homeBannerText.delete(key);
+  }
+  return existed;
+}
+
+async function recordHomeBannerClick({ bannerId, region, appVersion }) {
+  homeBannerClicks.push({
+    id: homeBannerClickSeq,
+    bannerId,
+    clickedAt: new Date(),
+    region: region ?? null,
+    appVersion: appVersion ?? null,
+  });
+  homeBannerClickSeq += 1;
+}
+
+// counts: { bannerId: n } (already validated by the route). Ids that are not a banner are
+// skipped. Returns how many banners were counted.
+async function recordHomeBannerImpressions({ counts, day }) {
+  let recorded = 0;
+  for (const [bannerId, n] of Object.entries(counts)) {
+    if (!homeBanners.has(bannerId)) continue;
+    const key = `${bannerId}::${day}`;
+    homeBannerImpressions.set(key, (homeBannerImpressions.get(key) || 0) + n);
+    recorded += 1;
+  }
+  return recorded;
+}
+
+// Impressions and clicks per banner for the UTC days fromDay..toDay (YYYY-MM-DD, inclusive).
+async function homeBannerStats({ fromDay, toDay }) {
+  const stats = new Map();
+  const row = (id) => {
+    if (!stats.has(id)) stats.set(id, { bannerId: id, impressions: 0, clicks: 0 });
+    return stats.get(id);
+  };
+  for (const [key, n] of homeBannerImpressions.entries()) {
+    const [bannerId, day] = key.split('::');
+    if (day >= fromDay && day <= toDay) row(bannerId).impressions += n;
+  }
+  const fromMs = Date.parse(`${fromDay}T00:00:00Z`);
+  const toMs = Date.parse(`${toDay}T00:00:00Z`) + 24 * 60 * 60 * 1000;
+  for (const click of homeBannerClicks) {
+    const t = click.clickedAt.getTime();
+    if (t >= fromMs && t < toMs) row(click.bannerId).clicks += 1;
+  }
+  return [...stats.values()];
+}
+
 // Test-only reset so scripts/test-ai-credits.js and scripts/test-ai-brief.js can start each
 // scenario from a clean store, the same way scripts/test-ai-run.js already resets
 // providerGateway's circuit breaker between cases. Production code never calls this.
@@ -423,6 +583,10 @@ function _resetForTests() {
   ledger = [];
   briefs.clear();
   exploreClicks = [];
+  homeBanners.clear();
+  homeBannerText.clear();
+  homeBannerClicks = [];
+  homeBannerImpressions.clear();
 }
 
 module.exports = {
@@ -442,5 +606,13 @@ module.exports = {
   deleteExploreCard,
   recordExploreClick,
   exploreClickCounts,
+  listHomeBanners,
+  listAllHomeBanners,
+  getHomeBanner,
+  upsertHomeBanner,
+  deleteHomeBanner,
+  recordHomeBannerClick,
+  recordHomeBannerImpressions,
+  homeBannerStats,
   _resetForTests,
 };

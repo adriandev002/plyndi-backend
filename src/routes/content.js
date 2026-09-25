@@ -34,8 +34,10 @@
 
 const crypto = require('crypto');
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 
 const store = require('../lib/store');
+const homeBannerSettings = require('../lib/homeBanners');
 
 // Bumped only on a breaking change to the card contract above (a field renamed or removed) — not
 // on ordinary content edits, which admins make through the store directly. Same role
@@ -75,7 +77,14 @@ function toResponseCard(card, baseUrl) {
     title: card.text.title,
     description: card.text.description,
     ctaLabel: card.text.ctaLabel,
-    actionURL: card.type === 'affiliate' ? `${baseUrl}/r/${encodeURIComponent(card.id)}` : null,
+    // Editorial cards (a plyndi.com guide, say) link out through /r/<id> exactly like affiliate
+    // cards: one code path, and the same click counts in the admin page. Until 25 Sep 2026 only
+    // affiliate cards got an actionURL, so an editorial card reached the app with neither an
+    // actionURL nor a navigateTo, and the iOS client — which drops any card with no action —
+    // silently discarded every one of them.
+    actionURL: (card.type === 'affiliate' || card.type === 'editorial')
+      ? `${baseUrl}/r/${encodeURIComponent(card.id)}`
+      : null,
     navigateTo: card.type === 'firstParty' ? card.navigateTo : null,
   };
 }
@@ -113,4 +122,144 @@ router.get('/explore', async (req, res) => {
   }
 });
 
+// ============================================================================
+// GET /v1/content/home-banners — the Home screen banner carousel.
+// ----------------------------------------------------------------------------
+// Same client key, ETag/304, locale fallback, fail-open min version and "200 with an empty list,
+// never a 500" behaviour as /explore above. Banner contract (same spellings as an Explore card —
+// imageUrl, actionURL):
+//   id, type ("firstParty" | "affiliate"), partnerName, imageUrl, imageHasText, textTheme,
+//   title, subtitle, ctaLabel, altText, actionURL, navigateTo, requiresUpcomingTrip
+//
+// imageHasText: the words are drawn into the image, so title/subtitle/ctaLabel are null and
+// imageUrl is this locale's own image if it has one, else the banner's default image.
+//
+// A banner with a target URL gets actionURL = this server's own /r/banner/<id>, never the
+// partner URL — the /r/banner/ prefix keeps it from colliding with an Explore card's /r/<id> when
+// the two share an id. A banner with a navigateTo gets that instead; one with neither is shown
+// but not tappable. The admin API guarantees never both.
+//
+// requiresUpcomingTrip is passed through for the APP to apply: only it knows whether this user
+// has a trip planned, and that must not be sent here.
+// ============================================================================
+
+function toResponseBanner(banner, baseUrl) {
+  const text = banner.text;
+  if (!text || !text.altText) return null; // defensive — the store drops these already
+  const hasText = banner.imageHasText === true;
+  return {
+    id: banner.id,
+    type: banner.type,
+    partnerName: banner.partnerName || null,
+    imageUrl: hasText ? (text.imageUrl || banner.imageUrl) : banner.imageUrl,
+    imageHasText: hasText,
+    textTheme: banner.textTheme || 'light',
+    title: hasText ? null : (text.title || null),
+    subtitle: hasText ? null : (text.subtitle || null),
+    ctaLabel: hasText ? null : (text.ctaLabel || null),
+    altText: text.altText,
+    actionURL: banner.targetUrl ? `${baseUrl}/r/banner/${encodeURIComponent(banner.id)}` : null,
+    navigateTo: banner.targetUrl ? null : (banner.navigateTo || null),
+    requiresUpcomingTrip: banner.requiresUpcomingTrip === true,
+  };
+}
+
+router.get('/home-banners', async (req, res) => {
+  const ttlSeconds = Number(process.env.CONTENT_TTL_SECONDS) || DEFAULT_TTL_SECONDS;
+  const intervalSeconds = homeBannerSettings.intervalSeconds();
+  const aspectRatio = homeBannerSettings.aspectRatio();
+  try {
+    const locale = readLocale(req);
+    const appVersion = req.appContext ? req.appContext.appVersion : null;
+    const baseUrl = publicBaseUrl(req);
+
+    const banners = await store.listHomeBanners({
+      locale,
+      appVersion,
+      now: new Date(),
+      limit: homeBannerSettings.MAX_ACTIVE_BANNERS,
+    });
+    const body = {
+      intervalSeconds,
+      aspectRatio,
+      banners: banners.map((banner) => toResponseBanner(banner, baseUrl)).filter(Boolean),
+    };
+
+    const etag = `"${crypto.createHash('sha1').update(JSON.stringify(body)).digest('hex')}"`;
+    res.set('ETag', etag);
+    res.set('Cache-Control', `max-age=${ttlSeconds}`);
+
+    if (req.get('If-None-Match') === etag) {
+      res.status(304).end();
+      return;
+    }
+
+    res.status(200).json(body);
+  } catch (err) {
+    console.error(`[content] GET /v1/content/home-banners failed: ${err.message}`);
+    res.status(200).json({ intervalSeconds, aspectRatio, banners: [] });
+  }
+});
+
+// ============================================================================
+// POST /v1/content/home-banners/impressions — aggregated daily view counts from the app.
+// ----------------------------------------------------------------------------
+// Body: { "counts": { "<bannerId>": <whole number 1-50>, ... } }, at most 10 entries. Each count
+// is ADDED to that banner's row for today (UTC). Ids that are not a banner are skipped.
+//
+// ALWAYS 204. The app fires this and forgets it; nothing it could learn from a 4xx would change
+// what it does next, and a bad body must never become a 500. A body that breaks any rule is
+// dropped whole (nothing stored) rather than partly applied. Rate-limited requests are dropped
+// the same way — 204, not 429, so no client ever retries into the limit. (A malformed JSON body
+// never reaches this handler at all: src/server.js turns express.json()'s parse error into a
+// 204 for this path.)
+//
+// Mounted by src/server.js AFTER requireClientKey but BEFORE the general per-IP limiter, the
+// same placement /v1/config has: impression pings must not spend the 60-an-hour budget that
+// guards the paid AI routes.
+//
+// Stores counts only — no user id, device id or IP, here or in the table.
+// ============================================================================
+
+const MAX_IMPRESSION_ENTRIES = 10;
+const MAX_IMPRESSIONS_PER_ENTRY = 50;
+const BANNER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+const impressionsLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: Number(process.env.HOME_BANNER_IMPRESSIONS_RATE_LIMIT_MAX) || 30,
+  standardHeaders: false,
+  legacyHeaders: false,
+  handler: (_req, res) => res.status(204).end(),
+});
+
+// Returns a plain { id: n } object, or null if the body breaks any rule.
+function readImpressionCounts(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const counts = body.counts;
+  if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return null;
+  const entries = Object.entries(counts);
+  if (entries.length === 0 || entries.length > MAX_IMPRESSION_ENTRIES) return null;
+  const clean = {};
+  for (const [id, n] of entries) {
+    if (!BANNER_ID_PATTERN.test(id)) return null;
+    if (!Number.isInteger(n) || n < 1 || n > MAX_IMPRESSIONS_PER_ENTRY) return null;
+    clean[id] = n;
+  }
+  return clean;
+}
+
+const impressionsRouter = express.Router();
+
+impressionsRouter.post('/', impressionsLimiter, async (req, res) => {
+  try {
+    const counts = readImpressionCounts(req.body);
+    if (counts) await store.recordHomeBannerImpressions({ counts, day: homeBannerSettings.utcDay() });
+  } catch (err) {
+    console.error(`[content] POST /v1/content/home-banners/impressions failed (answering 204 anyway): ${err.message}`);
+  }
+  res.status(204).end();
+});
+
 module.exports = router;
+module.exports.homeBannerImpressionsRouter = impressionsRouter;

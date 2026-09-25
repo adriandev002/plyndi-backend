@@ -108,6 +108,7 @@ async function main() {
     const localeCreate = await createCard(port, {
       id: localeCardId,
       type: 'editorial',
+      targetUrl: 'https://plyndi.com/test-fixture',
       category: 'lifestyle',
       icon: 'sparkles',
       minAppVersion: '0.0.0',
@@ -130,6 +131,7 @@ async function main() {
     const versionCreate = await createCard(port, {
       id: versionCardId,
       type: 'editorial',
+      targetUrl: 'https://plyndi.com/test-fixture',
       category: 'lifestyle',
       icon: 'sparkles',
       minAppVersion: '5.0.0',
@@ -265,6 +267,36 @@ async function main() {
       text: { en: { tag: 'T', title: 'T', description: 'D', ctaLabel: 'C' } },
     });
     assertEqual('an affiliate card with no targetUrl is rejected -> 400', missingTarget.status, 400);
+
+    // ---------------------------------------------------------------- editorial cards
+    // Until 25 Sep 2026 the feed only gave affiliate cards an actionURL, so an editorial card
+    // reached the app with no action at all and the iOS client silently dropped it.
+    console.log('\n=== editorial cards link out through /r/<id> ===');
+    const editorialNoTarget = await createCard(port, {
+      id: 'test-editorial-no-target', type: 'editorial', category: 'travel', icon: 'book',
+      published: true, text: { en: { tag: 'T', title: 'T', description: 'D', ctaLabel: 'C' } },
+    });
+    assertEqual('an editorial card with no targetUrl is rejected -> 400', editorialNoTarget.status, 400);
+
+    const editorial = await createCard(port, {
+      id: 'test-editorial-card', type: 'editorial', category: 'travel', icon: 'book',
+      targetUrl: 'https://plyndi.com/guides/taipei', published: true,
+      text: { en: { tag: 'Guide', title: 'Taipei in 3 days', description: 'D', ctaLabel: 'Read' } },
+    });
+    testCardIds.push('test-editorial-card');
+    assertEqual('an editorial card with a targetUrl is accepted -> 201', editorial.status, 201);
+
+    const editorialFeed = await explore(port, '', clientHeaders());
+    const editorialCard = (editorialFeed.json.cards || []).find((c) => c.id === 'test-editorial-card');
+    check('the editorial card is served', Boolean(editorialCard), JSON.stringify(editorialCard));
+    if (editorialCard) {
+      check('editorial actionURL goes through /r/, not straight to the article',
+        new URL(editorialCard.actionURL).pathname === '/r/test-editorial-card', editorialCard.actionURL);
+      check('editorial navigateTo is null', editorialCard.navigateTo === null, String(editorialCard.navigateTo));
+    }
+    const editorialRedirect = await request(port, 'GET', '/r/test-editorial-card', {});
+    assertEqual('editorial /r/<id> -> 302', editorialRedirect.status, 302);
+    assertEqual('editorial redirects to its article', editorialRedirect.headers.location, 'https://plyndi.com/guides/taipei');
 
     // The seed is the thing that shipped broken, so assert the shipped values too, not just the
     // validator — a corrected validator with an uncorrected seed serves a card the app drops.

@@ -417,6 +417,212 @@ async function exploreClickCounts({ since }) {
   return rows.map((row) => ({ cardId: row.card_id, clicks: Number(row.clicks) }));
 }
 
+// ---------------------------------------------------------------------------
+// Home banner carousel — same async surface as memoryStore.js's banner methods and the same split
+// as the Explore queries above: SQL narrows to active, in-window rows for this language in
+// position order; min_app_version is decided in application code with compareVersions (a NULL
+// min fails open).
+// ---------------------------------------------------------------------------
+
+function toHomeBanner(row, text) {
+  return {
+    id: row.id,
+    type: row.type,
+    partnerName: row.partner_name,
+    position: row.position,
+    active: row.active,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    minAppVersion: row.min_app_version,
+    imageUrl: row.image_url,
+    imageHasText: row.image_has_text,
+    textTheme: row.text_theme,
+    targetUrl: row.target_url,
+    navigateTo: row.navigate_to,
+    requiresUpcomingTrip: row.requires_upcoming_trip,
+    locales: row.locales,
+    createdAtMs: new Date(row.created_at).getTime(),
+    updatedAtMs: new Date(row.updated_at).getTime(),
+    text: text || null,
+  };
+}
+
+function toBannerTextRow(row) {
+  return { title: row.title, subtitle: row.subtitle, ctaLabel: row.cta_label, altText: row.alt_text, imageUrl: row.image_url };
+}
+
+async function homeBannerTextFor(ids) {
+  const { rows } = await getPool().query('SELECT * FROM home_banner_text WHERE banner_id = ANY($1)', [ids]);
+  const textByBanner = new Map();
+  for (const row of rows) {
+    if (!textByBanner.has(row.banner_id)) textByBanner.set(row.banner_id, {});
+    textByBanner.get(row.banner_id)[row.locale] = toBannerTextRow(row);
+  }
+  return textByBanner;
+}
+
+// Unfiltered, for GET /v1/admin/home-banners.
+async function listAllHomeBanners() {
+  const { rows } = await getPool().query('SELECT * FROM home_banners ORDER BY position ASC, created_at ASC, id ASC');
+  if (!rows.length) return [];
+  const textByBanner = await homeBannerTextFor(rows.map((row) => row.id));
+  return rows.map((row) => toHomeBanner(row, textByBanner.get(row.id) || {}));
+}
+
+// Unfiltered single lookup — used by GET /r/banner/:id and the admin API's existence checks.
+async function getHomeBanner(id) {
+  const { rows } = await getPool().query('SELECT * FROM home_banners WHERE id = $1', [id]);
+  if (!rows[0]) return null;
+  const textByBanner = await homeBannerTextFor([id]);
+  return toHomeBanner(rows[0], textByBanner.get(id) || {});
+}
+
+async function listHomeBanners({ locale = 'en', appVersion = null, now = new Date(), limit = 10 } = {}) {
+  const nowVal = now instanceof Date ? now : new Date(now);
+  // locales IS NULL -> every language; otherwise the requested locale must be one of them.
+  const { rows } = await getPool().query(
+    `SELECT * FROM home_banners
+     WHERE active = true
+       AND (starts_at IS NULL OR starts_at <= $1)
+       AND (ends_at IS NULL OR ends_at > $1)
+       AND (locales IS NULL OR $2 = ANY(locales))
+     ORDER BY position ASC, created_at ASC, id ASC`,
+    [nowVal, locale]
+  );
+  const eligible = rows.filter((row) => compareVersions(appVersion, row.min_app_version) !== -1);
+  if (!eligible.length) return [];
+
+  const { rows: textRows } = await getPool().query(
+    'SELECT * FROM home_banner_text WHERE banner_id = ANY($1) AND locale = ANY($2)',
+    [eligible.map((row) => row.id), [locale, 'en']]
+  );
+  // Prefer the requested locale's row over the "en" fallback row when both exist.
+  const textByBanner = new Map();
+  for (const row of textRows) {
+    if (textByBanner.has(row.banner_id) && row.locale !== locale) continue;
+    textByBanner.set(row.banner_id, toBannerTextRow(row));
+  }
+
+  return eligible
+    .filter((row) => textByBanner.has(row.id)) // no row for this locale and no "en" row -> nothing to show
+    .slice(0, limit)
+    .map((row) => toHomeBanner(row, textByBanner.get(row.id)));
+}
+
+// A transaction for the same reason as upsertExploreCard: a banner row plus a full replace of its
+// per-locale rows must land together or not at all.
+async function upsertHomeBanner(banner) {
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO home_banners
+         (id, type, partner_name, position, active, starts_at, ends_at, min_app_version, image_url,
+          image_has_text, text_theme, target_url, navigate_to, requires_upcoming_trip, locales, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
+       ON CONFLICT (id) DO UPDATE SET
+         type = EXCLUDED.type,
+         partner_name = EXCLUDED.partner_name,
+         position = EXCLUDED.position,
+         active = EXCLUDED.active,
+         starts_at = EXCLUDED.starts_at,
+         ends_at = EXCLUDED.ends_at,
+         min_app_version = EXCLUDED.min_app_version,
+         image_url = EXCLUDED.image_url,
+         image_has_text = EXCLUDED.image_has_text,
+         text_theme = EXCLUDED.text_theme,
+         target_url = EXCLUDED.target_url,
+         navigate_to = EXCLUDED.navigate_to,
+         requires_upcoming_trip = EXCLUDED.requires_upcoming_trip,
+         locales = EXCLUDED.locales,
+         updated_at = now()
+       RETURNING *`,
+      [
+        banner.id, banner.type, banner.partnerName ?? null, banner.position, banner.active,
+        banner.startsAt ?? null, banner.endsAt ?? null, banner.minAppVersion ?? null, banner.imageUrl,
+        banner.imageHasText ?? false, banner.textTheme ?? 'light', banner.targetUrl ?? null,
+        banner.navigateTo ?? null, banner.requiresUpcomingTrip ?? false, banner.locales ?? null,
+      ]
+    );
+    await client.query('DELETE FROM home_banner_text WHERE banner_id = $1', [banner.id]);
+    for (const [locale, text] of Object.entries(banner.text || {})) {
+      await client.query(
+        `INSERT INTO home_banner_text (banner_id, locale, title, subtitle, cta_label, alt_text, image_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [banner.id, locale, text.title ?? null, text.subtitle ?? null, text.ctaLabel ?? null, text.altText, text.imageUrl ?? null]
+      );
+    }
+    await client.query('COMMIT');
+    const text = {};
+    for (const [locale, value] of Object.entries(banner.text || {})) {
+      text[locale] = { title: value.title ?? null, subtitle: value.subtitle ?? null, ctaLabel: value.ctaLabel ?? null, altText: value.altText, imageUrl: value.imageUrl ?? null };
+    }
+    return toHomeBanner(rows[0], text);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteHomeBanner(id) {
+  // home_banner_text cascades; clicks and impressions are deliberately not foreign keys, so the
+  // banner's history outlives it.
+  const { rowCount } = await getPool().query('DELETE FROM home_banners WHERE id = $1', [id]);
+  return rowCount > 0;
+}
+
+async function recordHomeBannerClick({ bannerId, region, appVersion }) {
+  await getPool().query(
+    'INSERT INTO home_banner_clicks (banner_id, region, app_version) VALUES ($1, $2, $3)',
+    [bannerId, region ?? null, appVersion ?? null]
+  );
+}
+
+// One statement: the JOIN drops ids that are not a banner, and ON CONFLICT adds to today's row
+// rather than replacing it, so concurrent posts from many devices sum correctly.
+async function recordHomeBannerImpressions({ counts, day }) {
+  const ids = Object.keys(counts);
+  if (!ids.length) return 0;
+  const { rowCount } = await getPool().query(
+    `INSERT INTO home_banner_impressions (banner_id, day, impressions)
+     SELECT c.id, $1::date, c.n
+     FROM unnest($2::text[], $3::bigint[]) AS c(id, n)
+     JOIN home_banners b ON b.id = c.id
+     ON CONFLICT (banner_id, day) DO UPDATE
+       SET impressions = home_banner_impressions.impressions + EXCLUDED.impressions`,
+    [day, ids, ids.map((id) => counts[id])]
+  );
+  return rowCount;
+}
+
+// Impressions and clicks per banner for the UTC days fromDay..toDay (YYYY-MM-DD, inclusive).
+async function homeBannerStats({ fromDay, toDay }) {
+  const fromTs = new Date(`${fromDay}T00:00:00Z`);
+  const toTs = new Date(Date.parse(`${toDay}T00:00:00Z`) + 24 * 60 * 60 * 1000);
+  const [{ rows: impressionRows }, { rows: clickRows }] = await Promise.all([
+    getPool().query(
+      `SELECT banner_id, SUM(impressions) AS impressions FROM home_banner_impressions
+       WHERE day >= $1::date AND day <= $2::date GROUP BY banner_id`,
+      [fromDay, toDay]
+    ),
+    getPool().query(
+      `SELECT banner_id, COUNT(*) AS clicks FROM home_banner_clicks
+       WHERE clicked_at >= $1 AND clicked_at < $2 GROUP BY banner_id`,
+      [fromTs, toTs]
+    ),
+  ]);
+  const stats = new Map();
+  const row = (id) => {
+    if (!stats.has(id)) stats.set(id, { bannerId: id, impressions: 0, clicks: 0 });
+    return stats.get(id);
+  };
+  for (const r of impressionRows) row(r.banner_id).impressions = Number(r.impressions);
+  for (const r of clickRows) row(r.banner_id).clicks = Number(r.clicks);
+  return [...stats.values()];
+}
+
 module.exports = {
   saveRun,
   getRun,
@@ -434,4 +640,12 @@ module.exports = {
   deleteExploreCard,
   recordExploreClick,
   exploreClickCounts,
+  listHomeBanners,
+  listAllHomeBanners,
+  getHomeBanner,
+  upsertHomeBanner,
+  deleteHomeBanner,
+  recordHomeBannerClick,
+  recordHomeBannerImpressions,
+  homeBannerStats,
 };

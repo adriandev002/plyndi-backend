@@ -1,0 +1,26 @@
+{
+  "banners": [
+    {
+      "id": "plyndi-placeholder-01",
+      "type": "firstParty",
+      "partnerName": null,
+      "position": 1,
+      "active": true,
+      "startsAt": null,
+      "endsAt": null,
+      "minAppVersion": null,
+      "imageUrl": "https://cdn.plyndi.com/banners/plyndi-banner-01-placeholder-1200x400.jpg",
+      "imageHasText": true,
+      "textTheme": "light",
+      "targetUrl": null,
+      "navigateTo": "section.travel",
+      "requiresUpcomingTrip": false,
+      "locales": null,
+      "text": {
+        "en": {
+          "altText": "Plyndi — your whole life, one app: money, tasks, shopping and trips"
+        }
+      }
+    }
+  ]
+}

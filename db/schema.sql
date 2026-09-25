@@ -179,3 +179,95 @@ CREATE TABLE IF NOT EXISTS explore_clicks (
 
 -- Powers GET /v1/admin/explore-clicks' exploreClickCounts(since) lookup.
 CREATE INDEX IF NOT EXISTS explore_clicks_card_clicked_at ON explore_clicks (card_id, clicked_at);
+
+-- ============================================================================
+-- Home banner carousel — GET /v1/content/home-banners, POST /v1/content/home-banners/impressions,
+-- GET /r/banner/:id, /v1/admin/home-banners, /v1/admin/home-banner-stats. Four new
+-- CREATE TABLE IF NOT EXISTS blocks, additive only, same rule as every block above: nothing above
+-- is edited or rebuilt to add these.
+--
+-- Same shape as the Explore tables on purpose (a row table, a per-locale table, a click log),
+-- with the column names the banner brief asked for where it named them (position, active,
+-- starts_at, ends_at, image_has_text, text_theme, …) and explore_cards' names everywhere else
+-- (image_url, target_url, navigate_to, min_app_version, cta_label).
+--
+-- NO price, rating, badge, discount or "deal" column, for the same reason as explore_cards above.
+-- A sponsored banner carries its partner's NAME (partner_name) so the app can disclose it; it
+-- never carries an offer.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS home_banners (
+  id TEXT PRIMARY KEY,
+  -- Named so a later phase can widen it with DROP CONSTRAINT / ADD CONSTRAINT instead of a rebuild.
+  type TEXT NOT NULL CONSTRAINT home_banners_type_check CHECK (type IN ('firstParty', 'affiliate')),
+  -- Required for affiliate (src/routes/admin.js); shown by the app as the sponsor.
+  partner_name TEXT,
+  -- Carousel order, ascending. Not unique: ties break on created_at, so a reorder never has to
+  -- juggle a uniqueness constraint mid-update.
+  position INTEGER NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT false,
+  starts_at TIMESTAMPTZ,
+  ends_at TIMESTAMPTZ,
+  -- NULL means every app version (the brief asked for it nullable; explore_cards uses '0.0.0').
+  min_app_version TEXT,
+  -- The default image. A locale may override it (home_banner_text.image_url), and only when
+  -- image_has_text is true — an image with words drawn in needs one per language.
+  image_url TEXT NOT NULL,
+  image_has_text BOOLEAN NOT NULL DEFAULT false,
+  -- light = white text on a dark gradient scrim; dark = dark text on a light scrim.
+  text_theme TEXT NOT NULL DEFAULT 'light' CONSTRAINT home_banners_text_theme_check CHECK (text_theme IN ('light', 'dark')),
+  target_url TEXT,
+  navigate_to TEXT,
+  -- Hotel and flight partners: the app shows the banner only to users with a trip planned. The
+  -- server cannot know that, so it passes the flag and the app filters.
+  requires_upcoming_trip BOOLEAN NOT NULL DEFAULT false,
+  -- NULL means every app language — never an empty array, which would mean no language at all.
+  locales TEXT[],
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- A banner opens a URL, a screen in the app, or nothing — never both. admin.js enforces this
+  -- with a readable 400 first; this is the backstop for any other writer.
+  CONSTRAINT home_banners_one_action CHECK (target_url IS NULL OR navigate_to IS NULL)
+);
+
+-- Powers GET /v1/content/home-banners' listing query (active rows in position order).
+CREATE INDEX IF NOT EXISTS home_banners_active_position ON home_banners (active, position, created_at);
+
+-- One row per (banner, locale). "en" is required by the admin API and is the fallback for every
+-- other locale. Length limits (title 40, subtitle 80, cta 20, alt 1-120) are enforced in
+-- src/routes/admin.js, where a failure can be a readable 400, same as explore_card_text.
+CREATE TABLE IF NOT EXISTS home_banner_text (
+  banner_id TEXT NOT NULL REFERENCES home_banners(id) ON DELETE CASCADE,
+  locale TEXT NOT NULL,
+  title TEXT,
+  subtitle TEXT,
+  cta_label TEXT,
+  alt_text TEXT NOT NULL,
+  image_url TEXT,
+  PRIMARY KEY (banner_id, locale)
+);
+
+-- Click-through log for GET /r/banner/:id. A separate table rather than a `kind` column on
+-- explore_clicks: every explore_clicks query stays exactly as it is (a kind column would have
+-- meant editing exploreClickCounts too, or banner taps would silently count as Explore clicks),
+-- and a banner and an Explore card may share an id without their counts ever mixing. Not a
+-- foreign key, for the same reason explore_clicks isn't: history outlives the banner.
+CREATE TABLE IF NOT EXISTS home_banner_clicks (
+  id BIGSERIAL PRIMARY KEY,
+  banner_id TEXT NOT NULL,
+  clicked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  region TEXT,
+  app_version TEXT
+);
+
+CREATE INDEX IF NOT EXISTS home_banner_clicks_banner_clicked_at ON home_banner_clicks (banner_id, clicked_at);
+
+-- Aggregated daily impression counts (UTC days), written by POST /v1/content/home-banners/impressions.
+-- Counts only: no user id, device id, IP or anything else that identifies who saw a banner.
+-- Not a foreign key, like home_banner_clicks, so stats outlive a deleted banner.
+CREATE TABLE IF NOT EXISTS home_banner_impressions (
+  banner_id TEXT NOT NULL,
+  day DATE NOT NULL,
+  impressions BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (banner_id, day)
+);

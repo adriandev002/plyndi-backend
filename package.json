@@ -7,9 +7,11 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node scripts/test-config.js && node scripts/test-ai-run.js && node scripts/test-ai-hub.js && node scripts/test-ai-credits.js && node scripts/test-ai-brief.js && node scripts/test-ask-router.js && node scripts/test-content.js",
+    "test": "node scripts/test-config.js && node scripts/test-ai-run.js && node scripts/test-ai-hub.js && node scripts/test-ai-credits.js && node scripts/test-ai-brief.js && node scripts/test-ask-router.js && node scripts/test-content.js && node scripts/test-home-banners.js",
+    "test:banners": "node scripts/test-home-banners.js",
     "migrate": "node scripts/migrate.js",
-    "seed:explore": "node scripts/seed-explore.js"
+    "seed:explore": "node scripts/seed-explore.js",
+    "seed:banners": "node scripts/seed-home-banners.js"
   },
   "engines": {
     "node": ">=18"

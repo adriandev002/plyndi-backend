@@ -1,5 +1,6 @@
 // ============================================================================
-// GET /r/:cardId — Phase 2 click-tracking redirect for affiliate Explore cards.
+// GET /r/:cardId — Phase 2 click-tracking redirect for affiliate Explore cards, and
+// GET /r/banner/:bannerId — the same for Home carousel banners.
 // ----------------------------------------------------------------------------
 // This is the URL an "affiliate" card's actionURL points at (see src/routes/content.js) —
 // exactly what makes the app never see, hardcode, or leak a raw partner deep link. It is opened
@@ -63,6 +64,48 @@ function withTrackingParam(targetUrl) {
 }
 
 const router = express.Router();
+
+// GET /r/banner/:bannerId — the same tracked redirect for a Home carousel banner with a target
+// URL (src/routes/content.js's /home-banners). Its own path prefix so a banner and an Explore
+// card can share an id: "/r/x" is always the card, "/r/banner/x" always the banner. Express's
+// "/:cardId" below only ever matches ONE path segment, so it can never swallow "/banner/x"; an
+// Explore card whose id is literally "banner" still resolves at "/r/banner". Registered first
+// anyway, so the precedence reads top to bottom. Same limiter, same no-client-key reasoning.
+router.get('/banner/:bannerId', redirectLimiter, async (req, res) => {
+  const bannerId = readParam(req.params.bannerId);
+  if (!bannerId) {
+    res.status(404).type('text/plain').send('Not found.');
+    return;
+  }
+
+  let banner;
+  try {
+    banner = await store.getHomeBanner(bannerId);
+  } catch (err) {
+    console.error(`[redirect] GET /r/banner/${bannerId} — store lookup failed: ${err.message}`);
+    res.status(404).type('text/plain').send('Not found.');
+    return;
+  }
+
+  // No banner, or one that opens a screen in the app (or nothing) rather than a URL: never
+  // redirect to a guessed URL.
+  if (!banner || !banner.targetUrl) {
+    res.status(404).type('text/plain').send('Not found.');
+    return;
+  }
+
+  try {
+    await store.recordHomeBannerClick({
+      bannerId: banner.id,
+      region: readParam(req.query.region),
+      appVersion: readParam(req.query.appVersion),
+    });
+  } catch (err) {
+    console.error(`[redirect] GET /r/banner/${bannerId} — recordHomeBannerClick failed (redirecting anyway): ${err.message}`);
+  }
+
+  res.redirect(302, withTrackingParam(banner.targetUrl));
+});
 
 router.get('/:cardId', redirectLimiter, async (req, res) => {
   const cardId = readParam(req.params.cardId);
