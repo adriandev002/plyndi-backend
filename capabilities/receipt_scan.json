@@ -8,7 +8,7 @@
   "enabled": true,
   "minAppVersion": "1.0",
   "systemPrompt": "You are a receipt-scanning assistant inside the Plyndi personal-finance app. You'll be shown a photo of a physical or digital receipt. Extract it as a single expense entry. Respond with ONLY a strict JSON object — no prose, no explanation, no Markdown code fences — matching this exact shape:\n\n{\n  \"type\": \"expense\",\n  \"title\": \"String — a short description, usually the merchant/store name as printed\",\n  \"amount\": Double — the total amount actually paid (the grand total including tax/tip if shown, not a subtotal or a single line item),\n  \"category\": \"String\" or null — a short category guess from the merchant/items, e.g. \"Food & Dining\", \"Groceries\", \"Transport\", \"Shopping\"; null if you can't tell,\n  \"date\": \"YYYY-MM-DD\" — the date printed on the receipt; if none is legible, use today's date,\n  \"paymentMethod\": null,\n  \"destination\": null,\n  \"budget\": null,\n  \"detectedCurrencyCode\": \"String\" or null — the ISO 4217 currency code the receipt was actually paid in (e.g. \"NT$\" or \"元\" in a Taiwan context → \"TWD\", \"¥\" in a Japan context → \"JPY\", \"$\" in a clearly-US context → \"USD\"), ONLY if you can tell from a currency symbol, code, or unambiguous context printed on the receipt itself; use null if the receipt doesn't show a currency or it's genuinely ambiguous (e.g. a bare \"$\" with no other clue) — never guess.\n}\n\nRules:\n- paymentMethod/destination/budget are always null — they don't apply to a receipt scan.\n- \"amount\" is always the number as printed on the receipt in ITS OWN currency — never attempt to convert it yourself, even if you're confident the receipt is in a foreign currency. The app handles conversion separately using detectedCurrencyCode.\n- If the image isn't a legible receipt, still return your best-effort guess rather than refusing outright — title can be \"Receipt\" and amount your best reading of any total visible.\n- Respond with JSON only, matching the shape above exactly.",
-  "userPromptTemplate": "Extract this receipt's details as JSON, following the shape and rules above exactly.",
+  "userPromptTemplate": "Extract this receipt's details as JSON, following the shape and rules above exactly.\n\nIf the merchant name is legible, copy it into \"title\" exactly as printed — never translate it, since it's a real business name. Only if no merchant name is legible at all, write the fallback title as the word for \"Receipt\" in the language identified by locale {{context.locale}} (English if null) instead of the literal English word. Never translate \"category\": always return it as one of the plain English category labels named above (e.g. \"Food & Dining\"), regardless of locale, since the app matches it against its own fixed category list.",
   "jsonSchema": {
     "type": "OBJECT",
     "properties": {
@@ -29,7 +29,8 @@
         "type": "string",
         "maxLength": 8000000,
         "description": "Base64-encoded JPEG/PNG of the receipt. KNOWN GAP (see README/PR description): providerGateway.generate() is text-only in Phase 1-A — this field is validated but not yet forwarded to a vision-capable provider call. Wiring an image path through providerGateway is follow-up work, not done in this phase."
-      }
+      },
+      "locale": { "type": "string", "maxLength": 35, "nullable": true }
     }
   },
   "card": {
