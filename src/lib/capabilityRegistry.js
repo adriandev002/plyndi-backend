@@ -48,6 +48,9 @@ const FROZEN_CAPABILITY_IDS = new Set([
   'form_coach',
   'readiness',
   'ask_router',
+  // Sep 2026 — Notes & Journal "Find tasks & expenses with AI". New capability (not a rename),
+  // no hub card: it is invoked from the note editor only, same as ask_router's search bar.
+  'note_extract',
 ]);
 
 let capabilities = new Map();
@@ -55,7 +58,7 @@ let capabilities = new Map();
 function validationError(id, parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'not a JSON object';
   if (parsed.id !== id) return `"id" field ("${parsed.id}") does not match filename ("${id}.json")`;
-  if (!FROZEN_CAPABILITY_IDS.has(parsed.id)) return `"${parsed.id}" is not one of the ten frozen capability ids`;
+  if (!FROZEN_CAPABILITY_IDS.has(parsed.id)) return `"${parsed.id}" is not one of the frozen capability ids`;
   if (typeof parsed.version !== 'number' || !Number.isFinite(parsed.version)) return '"version" must be a number';
   if (parsed.profile !== 'fast' && parsed.profile !== 'rich') return '"profile" must be "fast" or "rich"';
   if (!Number.isInteger(parsed.maxOutputTokens) || parsed.maxOutputTokens <= 0) {

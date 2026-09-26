@@ -15,7 +15,8 @@
     "form_coach": true,
     "readiness": true,
     "daily_brief": true,
-    "ask_router": true
+    "ask_router": true,
+    "note_extract": true
   },
   "messages": {
     "banner": null
