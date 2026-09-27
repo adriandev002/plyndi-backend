@@ -2,16 +2,17 @@
   "name": "plyndi-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Plyndi's AI/Places gateway. The one place OpenAI, Gemini, and Google Places API keys live server-side \u2014 neither the iOS app nor the future Android app ever holds a real key; both call this service instead.",
+  "description": "Plyndi's AI/Places gateway. The one place OpenAI, Gemini, and Google Places API keys live server-side — neither the iOS app nor the future Android app ever holds a real key; both call this service instead.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node scripts/test-config.js && node scripts/test-ai-run.js && node scripts/test-ai-hub.js && node scripts/test-ai-credits.js && node scripts/test-ai-brief.js && node scripts/test-ask-router.js && node scripts/test-content.js && node scripts/test-home-banners.js && node scripts/test-rate-limits.js",
+    "test": "node scripts/test-config.js && node scripts/test-ai-run.js && node scripts/test-ai-hub.js && node scripts/test-ai-credits.js && node scripts/test-ai-brief.js && node scripts/test-ask-router.js && node scripts/test-content.js && node scripts/test-home-banners.js && node scripts/test-rate-limits.js && node --test test/",
     "test:banners": "node scripts/test-home-banners.js && node scripts/test-rate-limits.js",
     "migrate": "node scripts/migrate.js",
     "seed:explore": "node scripts/seed-explore.js",
-    "seed:banners": "node scripts/seed-home-banners.js"
+    "seed:banners": "node scripts/seed-home-banners.js",
+    "test:unit": "node --test test/"
   },
   "engines": {
     "node": ">=18"

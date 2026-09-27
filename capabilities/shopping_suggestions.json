@@ -8,7 +8,7 @@
   "enabled": true,
   "minAppVersion": "1.0",
   "systemPrompt": "You are a helpful assistant inside the Plyndi app. Follow the instructions exactly and respond with valid JSON only, matching the requested shape.",
-  "userPromptTemplate": "You are a practical shopping assistant inside the Plyndi app. Look at this person's current not-yet-bought shopping list and suggest a few additional items they likely need but haven't added yet.\n\nCurrent list, as a JSON array of {name, category, cost, userPriced}: {{context.toBuyItems}}\nList total so far: {{context.toBuyTotal}} (display symbol {{context.currencySymbol}}).\nuserPriced true means the person typed that price themselves: treat those prices as ground truth for their local price level and calibrate your own estimates against them. userPriced false or missing means the cost is an earlier estimate, or 0 when unknown.\n\nPRICING CURRENCY: currency code {{context.currencyCode}} (ISO 4217). Price every suggestion in this currency and set costCurrencyCode to exactly this code. If the currency code is null, price in the currency the symbol above most plausibly means and set costCurrencyCode to that currency's ISO 4217 code.\nPRICING REGION: {{context.regionCode}} (ISO 3166-1 country code). Quote the typical current shelf price for this item at an ordinary store (supermarket, convenience store, pharmacy — the one most people there would use) in that region, for the usual pack size sold there. Name the pack size in unitHint (e.g. \"1 kg\", \"6-pack\"). Never mentally convert a price from another country. Two different items should almost never share the same price. If the region is null, do not assume any particular country — least of all the United States — infer the market from the currency code instead, and set priceConfidence to \"rough\" for every item.\npriceConfidence: \"typical\" when this is the ordinary shelf price there for that pack size; \"rough\" when the price varies a lot by brand or size, or you are unsure.\n\nRequirements:\n- suggestedItems (2-5 items): things commonly bought alongside what's already on the list, or commonly forgotten for this kind of shop (e.g. batteries for electronics, trash bags for cleaning supplies). Infer the shopping occasion from the items given — don't suggest random unrelated products.\n- estimatedCost is a plain number with no currency symbol or code in it, e.g. 45 not \"NT$45\" (the app renders the symbol itself).\n- category: use exactly one of these English keys when it fits — Groceries, Household, Electronics, Clothing, Personal Care, Stationery, Other — because the app translates them itself. Only when none fits, write a short category name in the response language.\n- reason: one short sentence.\n- Never re-suggest an item that's already on the list.\n- summary: one short sentence framing why these suggestions make sense together.\n- budgetTip: one short, concrete tip that quotes the list total or a price given above — not generic advice.\n- If the list is empty, keep suggestedItems to 2-3 common staples and make summary/budgetTip about getting started.\n\nLANGUAGE: write summary, budgetTip, and each suggested item's name, reason and unitHint entirely in {{context.responseLanguage}} (app locale {{context.locale}}). Do not fall back to English when another language is requested, even for Burmese or Thai. If both are null, respond in English.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"summary\": \"String\",\n  \"costCurrencyCode\": \"String (ISO 4217)\",\n  \"suggestedItems\": [ { \"name\": \"String\", \"category\": \"String\", \"estimatedCost\": Double, \"unitHint\": \"String\", \"priceConfidence\": \"typical\" | \"rough\", \"reason\": \"String\" } ],\n  \"budgetTip\": \"String\"\n}",
+  "userPromptTemplate": "You are a practical shopping assistant inside the Plyndi app. Suggest what this person is likely to need to buy soon, based ONLY on the signals below — never on generic habits.\n\nCURRENT LIST ({{context.listName}}; null means their general list), as a JSON array of {name, category, cost, userPriced}: {{context.toBuyItems}}\nList total so far: {{context.toBuyTotal}} (display symbol {{context.currencySymbol}}).\nuserPriced true means the person typed that price themselves: treat those prices as ground truth for their local price level and calibrate your own estimates against them. userPriced false or missing means the cost is an earlier estimate, or 0 when unknown.\nOCCASION the person picked or typed (null if none): {{context.occasion}}\n\nOTHER SIGNALS (any may be null or missing; usesOtherData={{context.usesOtherData}} — when false, only the list and the occasion are available):\n- cadence — things bought in the last 90 days, each with timesBought, lastBought, daysSinceLast, usualIntervalDays (average days between purchases; missing when bought once) and typicalPrice (what they actually paid, in the pricing currency — the best price calibration you have): {{context.cadence}}\n- trips — upcoming trips with daysUntil, nights and needToBuy (packing items still to buy that are not on the list yet): {{context.trips}}\n- events — calendar events in the next 14 days: {{context.events}}\n- tasks — open to-dos due within 14 days (negative dueInDays = overdue): {{context.tasks}}\n- money — monthlyBudgetRemaining (missing if no budget is set) and shoppingSpendThisMonth by category: {{context.money}}\n- excludedNames — already added this session or marked not useful; never suggest these: {{context.excludedNames}}\n- today: {{context.todayISO}}\n\nPRICING CURRENCY: currency code {{context.currencyCode}} (ISO 4217). Price every suggestion in this currency and set costCurrencyCode to exactly this code. If the currency code is null, price in the currency the symbol above most plausibly means and set costCurrencyCode to that currency's ISO 4217 code.\nPRICING REGION: {{context.regionCode}} (ISO 3166-1 country code). Quote the typical current shelf price for this item at an ordinary store (supermarket, convenience store, pharmacy — the one most people there would use) in that region, for the usual pack size sold there. Name the pack size in unitHint (e.g. \"1 kg\", \"6-pack\"). Never mentally convert a price from another country. Two different items should almost never share the same price. For a cadence item, use its typicalPrice. If the region is null, do not assume any particular country — least of all the United States — infer the market from the currency code instead, and set priceConfidence to \"rough\" for every item.\npriceConfidence: \"typical\" when this is the ordinary shelf price there for that pack size; \"rough\" when the price varies a lot by brand or size, or you are unsure.\n\nRULES:\n1. Every suggestion cites exactly ONE reason source. sourceKind is \"list\" (goes with an item on the current list), \"cadence\" (a previous purchase that is due again), \"trip\", \"event\", \"task\" or \"occasion\". sourceRef is copied EXACTLY, untranslated, from the signals: the list item's name, the cadence item's name, the trip's destination, the event's title, the task's title, or the occasion text. A suggestion you cannot tie to one of the given signals must not be returned.\n2. Cadence: suggest a previously bought item only if daysSinceLast is at least its usualIntervalDays. Say so in reason with the real numbers, e.g. \"You usually buy this every ~10 days; last time was 12 days ago.\"\n3. Trips: needToBuy items are strong candidates, plus things that trip clearly needs that are neither packed nor listed. Mention the destination and the days until departure in reason.\n4. Events and tasks: only when the title clearly implies buying something (a birthday suggests a gift or a cake; \"host dinner\" suggests groceries). Never invent an event or a task.\n5. NO GENERIC STAPLES. If the list is empty, no cadence item is due, no trip, event or task implies a purchase, and there is no occasion, return suggestedItems as [] and set needsOccasion to true. Never fill the gap with rice, milk, bread, eggs or any other default staples. In every other case set needsOccasion to false.\n6. Never re-suggest anything already on the list or in excludedNames. Compare case- and accent-insensitively, and across languages where the meaning is obvious (\"牛奶\" is \"milk\").\n7. Return 3-6 suggestions when the signals support that many (fewer is fine when they don't), ordered by how soon the person is likely to need each one.\n8. estimatedCost is a plain number with no currency symbol or code in it, e.g. 45 not \"NT$45\" (the app renders the symbol itself).\n9. category: use exactly one of these English keys when it fits — Groceries, Household, Electronics, Clothing, Personal Care, Stationery, Other — because the app translates them itself. Only when none fits, write a short category name in the response language.\n10. reason: one short sentence. summary: one short sentence.\n11. budgetTip must quote at least one real number from the signals — monthlyBudgetRemaining, a category's shoppingSpendThisMonth, or the list total — as a plain number in the pricing currency. No generic advice. When needsOccasion is true, budgetTip may be an empty string.\n\nLANGUAGE: write summary, budgetTip, and each suggestion's name, reason and unitHint entirely in {{context.responseLanguage}} (app locale {{context.locale}}). Do not fall back to English when another language is requested, even for Burmese or Thai. If both are null, respond in English. sourceRef is the one exception: copy it verbatim.\n\nRespond with ONLY a strict JSON object, no prose, no Markdown code fences, matching this exact shape:\n{\n  \"summary\": \"String\",\n  \"costCurrencyCode\": \"String (ISO 4217)\",\n  \"needsOccasion\": Boolean,\n  \"suggestedItems\": [ { \"name\": \"String\", \"category\": \"String\", \"estimatedCost\": Double, \"unitHint\": \"String\", \"priceConfidence\": \"typical\" | \"rough\", \"reason\": \"String\", \"sourceKind\": \"list\" | \"cadence\" | \"trip\" | \"event\" | \"task\" | \"occasion\", \"sourceRef\": \"String\" } ],\n  \"budgetTip\": \"String\"\n}",
   "jsonSchema": {
     "type": "OBJECT",
     "properties": {
@@ -17,6 +17,9 @@
       },
       "costCurrencyCode": {
         "type": "STRING"
+      },
+      "needsOccasion": {
+        "type": "BOOLEAN"
       },
       "suggestedItems": {
         "type": "ARRAY",
@@ -44,6 +47,20 @@
             },
             "reason": {
               "type": "STRING"
+            },
+            "sourceKind": {
+              "type": "STRING",
+              "enum": [
+                "list",
+                "cadence",
+                "trip",
+                "event",
+                "task",
+                "occasion"
+              ]
+            },
+            "sourceRef": {
+              "type": "STRING"
             }
           },
           "required": [
@@ -52,7 +69,9 @@
             "estimatedCost",
             "unitHint",
             "priceConfidence",
-            "reason"
+            "reason",
+            "sourceKind",
+            "sourceRef"
           ]
         }
       },
@@ -63,6 +82,7 @@
     "required": [
       "summary",
       "costCurrencyCode",
+      "needsOccasion",
       "suggestedItems",
       "budgetTip"
     ]
@@ -133,6 +153,192 @@
         "maxLength": 40,
         "nullable": true,
         "description": "v2: the app language's English name (e.g. \"Burmese\", \"Thai\"). locale alone sometimes came back in English for my/th."
+      },
+      "listName": {
+        "type": "string",
+        "maxLength": 80,
+        "nullable": true,
+        "description": "v2: the list being planned; absent/null = the General list."
+      },
+      "occasion": {
+        "type": "string",
+        "maxLength": 120,
+        "nullable": true,
+        "description": "v2: what the user picked or typed (\"weekly groceries\", \"Party/guests\", free text)."
+      },
+      "usesOtherData": {
+        "type": "boolean",
+        "nullable": true,
+        "description": "v2: Settings toggle. When false the app sends only the list and the occasion."
+      },
+      "todayISO": {
+        "type": "string",
+        "maxLength": 10,
+        "nullable": true
+      },
+      "excludedNames": {
+        "type": "array",
+        "maxItems": 60,
+        "nullable": true,
+        "items": {
+          "type": "string",
+          "maxLength": 150
+        }
+      },
+      "cadence": {
+        "type": "array",
+        "maxItems": 30,
+        "nullable": true,
+        "description": "v2: purchase cadence from bought items + linked expenses, last 90 days. Cap 30.",
+        "items": {
+          "type": "object",
+          "required": [
+            "name",
+            "timesBought",
+            "daysSinceLast"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 150
+            },
+            "category": {
+              "type": "string",
+              "maxLength": 80,
+              "nullable": true
+            },
+            "timesBought": {
+              "type": "integer"
+            },
+            "lastBought": {
+              "type": "string",
+              "maxLength": 10,
+              "nullable": true
+            },
+            "daysSinceLast": {
+              "type": "integer"
+            },
+            "usualIntervalDays": {
+              "type": "integer",
+              "nullable": true
+            },
+            "typicalPrice": {
+              "type": "number",
+              "nullable": true
+            }
+          }
+        }
+      },
+      "trips": {
+        "type": "array",
+        "maxItems": 3,
+        "nullable": true,
+        "description": "v2: upcoming trips. Cap 3; needToBuy cap 15.",
+        "items": {
+          "type": "object",
+          "required": [
+            "destination",
+            "daysUntil"
+          ],
+          "properties": {
+            "destination": {
+              "type": "string",
+              "maxLength": 150
+            },
+            "daysUntil": {
+              "type": "integer"
+            },
+            "nights": {
+              "type": "integer",
+              "nullable": true
+            },
+            "needToBuy": {
+              "type": "array",
+              "maxItems": 15,
+              "nullable": true,
+              "items": {
+                "type": "string",
+                "maxLength": 150
+              }
+            }
+          }
+        }
+      },
+      "events": {
+        "type": "array",
+        "maxItems": 10,
+        "nullable": true,
+        "description": "v2: calendar events in the next 14 days. Cap 10.",
+        "items": {
+          "type": "object",
+          "required": [
+            "title",
+            "daysUntil"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 150
+            },
+            "daysUntil": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "tasks": {
+        "type": "array",
+        "maxItems": 15,
+        "nullable": true,
+        "description": "v2: open to-dos due within 14 days. Cap 15.",
+        "items": {
+          "type": "object",
+          "required": [
+            "title",
+            "dueInDays"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 150
+            },
+            "dueInDays": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "money": {
+        "type": "object",
+        "nullable": true,
+        "description": "v2: budget remaining and this month's shopping spend. Never account balances.",
+        "properties": {
+          "monthlyBudgetRemaining": {
+            "type": "number",
+            "nullable": true
+          },
+          "shoppingSpendThisMonth": {
+            "type": "array",
+            "maxItems": 12,
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "required": [
+                "category",
+                "amount"
+              ],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "amount": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
