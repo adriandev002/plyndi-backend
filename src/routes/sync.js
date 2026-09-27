@@ -143,4 +143,22 @@ router.get('/backups', userIdFromRequest, async (req, res, next) => {
   }
 });
 
+// DELETE /backups — removes every stored backup for the authenticated user. Exists so the
+// sync resource has a complete lifecycle (create/read/delete) and so a future client-side
+// "delete account" flow has a server-side counterpart to call. Scoped by the same
+// userIdFromRequest identity as the other routes: a caller can only delete their own backups.
+// Idempotent — deleting when nothing is stored still returns 200 with deleted: 0.
+router.delete('/backups', userIdFromRequest, async (req, res, next) => {
+  try {
+    const backups = await readUserBackups(req.plyndiUserId);
+    for (const record of backups) {
+      await fs.rm(path.join(STORAGE_DIR, backupFileName(req.plyndiUserId, record.backupId)), { force: true });
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json({ deleted: backups.length });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = router;

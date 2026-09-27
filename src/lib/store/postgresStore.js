@@ -193,6 +193,13 @@ async function globalSpendToday() {
 // every other upsert (digest-only insert, a same-day digest repost, a losing write in the
 // two-concurrent-GETs race documented in src/routes/aiBrief.js) leaves it untouched.
 // ---------------------------------------------------------------------------
+// brief_locale (added Sep 2026, see migrate-brief-locale.sql) records the digest locale the
+// cached brief_text was generated in. The digest POST overwrites digest_json — including its
+// locale — without touching a generated brief, so after a same-day language switch the row holds
+// a new-locale digest next to an old-locale brief. src/routes/aiBrief.js compares the two at
+// read time; on mismatch it regenerates and re-saves with replaceBrief=true, which is the ONLY
+// path that overwrites an existing brief_text (and re-stamps created_at).
+// ---------------------------------------------------------------------------
 
 function toBrief(row) {
   if (!row) return null;
@@ -201,23 +208,30 @@ function toBrief(row) {
     localDate: row.local_date,
     digest: row.digest_json,
     briefText: row.brief_text,
+    briefLocale: row.brief_locale,
     provider: row.provider,
     model: row.model,
     createdAtMs: new Date(row.created_at).getTime(),
   };
 }
 
-// entry: { subject, localDate, digest?, briefText?, provider?, model? }
+// entry: { subject, localDate, digest?, briefText?, briefLocale?, provider?, model?, replaceBrief? }
 async function saveBrief(entry) {
   const { rows } = await getPool().query(
-    `INSERT INTO ai_briefs (subject, local_date, digest_json, brief_text, provider, model, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, now())
+    `INSERT INTO ai_briefs (subject, local_date, digest_json, brief_text, brief_locale, provider, model, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
      ON CONFLICT (subject, local_date) DO UPDATE SET
        digest_json = COALESCE(EXCLUDED.digest_json, ai_briefs.digest_json),
-       brief_text  = COALESCE(ai_briefs.brief_text, EXCLUDED.brief_text),
-       provider    = COALESCE(ai_briefs.provider, EXCLUDED.provider),
-       model       = COALESCE(ai_briefs.model, EXCLUDED.model),
+       brief_text  = CASE WHEN $8 THEN EXCLUDED.brief_text
+                          ELSE COALESCE(ai_briefs.brief_text, EXCLUDED.brief_text) END,
+       brief_locale = CASE WHEN $8 THEN EXCLUDED.brief_locale
+                           ELSE COALESCE(ai_briefs.brief_locale, EXCLUDED.brief_locale) END,
+       provider    = CASE WHEN $8 THEN EXCLUDED.provider
+                          ELSE COALESCE(ai_briefs.provider, EXCLUDED.provider) END,
+       model       = CASE WHEN $8 THEN EXCLUDED.model
+                          ELSE COALESCE(ai_briefs.model, EXCLUDED.model) END,
        created_at  = CASE
+                       WHEN $8 THEN now()
                        WHEN ai_briefs.brief_text IS NULL AND EXCLUDED.brief_text IS NOT NULL THEN now()
                        ELSE ai_briefs.created_at
                      END
@@ -227,8 +241,10 @@ async function saveBrief(entry) {
       entry.localDate,
       entry.digest !== undefined && entry.digest !== null ? JSON.stringify(entry.digest) : null,
       entry.briefText ?? null,
+      entry.briefLocale ?? null,
       entry.provider ?? null,
       entry.model ?? null,
+      entry.replaceBrief === true,
     ]
   );
   return toBrief(rows[0]);

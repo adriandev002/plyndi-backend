@@ -34,7 +34,7 @@ const BRIEF_TTL_MS = Number(process.env.AI_BRIEF_STORE_TTL_MS || 90 * 24 * 60 * 
 const runs = new Map(); // runId -> run
 const idempotencyIndex = new Map(); // "<scopeKey>:<idempotencyKey>" -> runId
 let ledger = []; // credit ledger entries, insertion order (oldest first)
-const briefs = new Map(); // "<subject>::<localDate>" -> { subject, localDate, digest, briefText, provider, model, createdAtMs }
+const briefs = new Map(); // "<subject>::<localDate>" -> { subject, localDate, digest, briefText, briefLocale, provider, model, createdAtMs }
 
 function idempotencyKeyFor(scopeKey, idempotencyKey) {
   return `${scopeKey}:${idempotencyKey}`;
@@ -166,27 +166,33 @@ function purgeExpiredBriefs() {
   }
 }
 
-// entry: { subject, localDate, digest?, briefText?, provider?, model? }
+// entry: { subject, localDate, digest?, briefText?, briefLocale?, provider?, model?, replaceBrief? }
 //
 // `createdAtMs` is what src/routes/aiBrief.js reports as `generatedAt` — it must reflect the
 // moment a brief was actually GENERATED, not the moment the row was first created by a
 // digest-only POST. It's therefore only ever stamped to `Date.now()` at the exact upsert where
-// briefText transitions from unset to set; every other upsert (a digest-only insert, a same-day
-// digest repost, a losing write in the two-concurrent-GETs race documented in
-// src/routes/aiBrief.js) leaves it untouched.
+// briefText transitions from unset to set (or on the replaceBrief overwrite path below);
+// every other upsert (a digest-only insert, a same-day digest repost, a losing write in the
+// two-concurrent-GETs race documented in src/routes/aiBrief.js) leaves it untouched.
+//
+// `replaceBrief === true` (set only by src/routes/aiBrief.js's locale-change regeneration
+// path) force-overwrites briefText/briefLocale/provider/model and re-stamps createdAtMs,
+// even when a brief already exists. Otherwise first-write-wins is preserved exactly.
 async function saveBrief(entry) {
   purgeExpiredBriefs();
   const key = briefKey(entry.subject, entry.localDate);
   const existing = briefs.get(key);
+  const replacing = entry.replaceBrief === true;
   const hadBrief = Boolean(existing && existing.briefText != null);
-  const generatingNow = !hadBrief && entry.briefText != null;
+  const generatingNow = (!hadBrief && entry.briefText != null) || replacing;
   const merged = {
     subject: entry.subject,
     localDate: entry.localDate,
     digest: entry.digest !== undefined ? entry.digest : (existing ? existing.digest : null),
-    briefText: hadBrief ? existing.briefText : (entry.briefText ?? null),
-    provider: hadBrief ? existing.provider : (entry.provider ?? null),
-    model: hadBrief ? existing.model : (entry.model ?? null),
+    briefText: replacing ? (entry.briefText ?? null) : (hadBrief ? existing.briefText : (entry.briefText ?? null)),
+    briefLocale: replacing ? (entry.briefLocale ?? null) : (existing ? (existing.briefLocale ?? entry.briefLocale ?? null) : (entry.briefLocale ?? null)),
+    provider: replacing ? (entry.provider ?? null) : (hadBrief ? existing.provider : (entry.provider ?? null)),
+    model: replacing ? (entry.model ?? null) : (hadBrief ? existing.model : (entry.model ?? null)),
     createdAtMs: generatingNow ? Date.now() : (existing ? existing.createdAtMs : Date.now()),
   };
   briefs.set(key, merged);

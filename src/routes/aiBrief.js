@@ -255,6 +255,27 @@ router.post('/digest', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /v1/ai/brief?localDate=YYYY-MM-DD
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// isBriefLocaleStale(existing) — true when a cached brief exists but was generated in a
+// different language than the latest digest asks for. The digest POST overwrites digest_json
+// (including its locale) without touching a generated brief, so after a same-day language
+// switch the row holds a new-locale digest next to an old-locale brief. Rows that predate
+// the brief_locale column have briefLocale null; a null digest locale can't prove staleness,
+// so those fall back to the legacy serve-the-cache behavior.
+// Exported for tests; production callers use it through the GET handler below.
+// ---------------------------------------------------------------------------
+function isBriefLocaleStale(existing) {
+  if (!existing || !existing.briefText) return false;
+  const digestLocale = existing.digest && typeof existing.digest.locale === 'string'
+    ? existing.digest.locale
+    : null;
+  const briefLocale = existing.briefLocale || null;
+  return digestLocale !== null && digestLocale !== briefLocale;
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/ai/brief?localDate=YYYY-MM-DD
+// ---------------------------------------------------------------------------
 router.get('/', async (req, res) => {
   const callerVersion = req.appContext ? req.appContext.appVersion : null;
   if (!capability) {
@@ -274,9 +295,12 @@ router.get('/', async (req, res) => {
   const { subject, verified } = subjectLib.resolveSubject(req);
   const existing = await store.getBrief(subject, localDate);
 
-  // Already generated today → return the cache. NO provider call. This is the common case and
-  // the entire point of the (subject, localDate) cache key.
-  if (existing && existing.briefText) {
+  // Already generated today → return the cache, but ONLY if it was generated in the language
+  // the latest digest asks for. On a same-day language switch isBriefLocaleStale() is true and
+  // we fall through to regenerate below. NO provider call on a hit — this is the common case
+  // and the entire point of the (subject, localDate) cache key.
+  const localeChanged = isBriefLocaleStale(existing);
+  if (existing && existing.briefText && !localeChanged) {
     return res.status(200).json({
       brief: existing.briefText,
       localDate,
@@ -355,12 +379,20 @@ router.get('/', async (req, res) => {
   // write's brief_text is ever kept, so the cache is still correct, but a same-instant race can
   // spend twice against the global cap. Accepted as a rare, bounded edge case for this phase
   // (a normal client only ever issues one such GET per app-foreground per day).
+  // Stamp the digest locale the new brief was generated in. On the locale-change path this
+  // must OVERWRITE the stale-language brief — the default first-write-wins upsert would keep
+  // it. replaceBrief is only ever set on this path.
+  const digestLocale = existing.digest && typeof existing.digest.locale === 'string'
+    ? existing.digest.locale
+    : null;
   const saved = await store.saveBrief({
     subject,
     localDate,
     briefText,
+    briefLocale: digestLocale,
     provider: generated.provider,
     model: generated.model,
+    replaceBrief: localeChanged,
   });
   await store.recordCredit({
     subject,
@@ -382,6 +414,8 @@ router.get('/', async (req, res) => {
 });
 
 module.exports = router;
-// Exposed for scripts/test-ai-brief.js only — production code never calls these directly.
+// Exposed for scripts/test-ai-brief.js and test/aiBriefLocale.test.js — production code never
+// calls these directly.
 module.exports.loadRemoteFeatures = loadRemoteFeatures;
 module.exports.loadCapability = loadCapability;
+module.exports.isBriefLocaleStale = isBriefLocaleStale;

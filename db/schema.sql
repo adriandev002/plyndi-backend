@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS ai_briefs (
   local_date TEXT NOT NULL,
   digest_json JSONB,
   brief_text TEXT,
+  brief_locale TEXT,
   provider TEXT,
   model TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

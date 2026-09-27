@@ -57,4 +57,19 @@ test('sync backup routes validate ownership and retain version metadata', async 
   const otherHeaders = { ...headers, authorization: `Bearer ${tokenFor('user-b', secret)}` };
   const otherLatest = await fetch(`${baseUrl}/v1/sync/backups/latest`, { headers: otherHeaders });
   assert.equal(otherLatest.status, 404);
+
+  // DELETE removes only the caller's own backups and is idempotent.
+  const otherDelete = await fetch(`${baseUrl}/v1/sync/backups`, { method: 'DELETE', headers: otherHeaders });
+  assert.equal(otherDelete.status, 200);
+  assert.equal((await otherDelete.json()).deleted, 0);
+  const stillThere = await fetch(`${baseUrl}/v1/sync/backups`, { headers });
+  assert.equal((await stillThere.json()).backups.length, 1);
+  const deleted = await fetch(`${baseUrl}/v1/sync/backups`, { method: 'DELETE', headers });
+  assert.equal(deleted.status, 200);
+  assert.equal((await deleted.json()).deleted, 1);
+  const gone = await fetch(`${baseUrl}/v1/sync/backups`, { headers });
+  assert.equal((await gone.json()).backups.length, 0);
+  const deletedAgain = await fetch(`${baseUrl}/v1/sync/backups`, { method: 'DELETE', headers });
+  assert.equal(deletedAgain.status, 200);
+  assert.equal((await deletedAgain.json()).deleted, 0);
 });
