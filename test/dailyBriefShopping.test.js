@@ -1,4 +1,4 @@
-// daily_brief v2 (Sep 2026) — the digest may carry shopping counts; older digests stay valid.
+// daily_brief v3 (Sep 2026) — one-sentence briefs; the digest may carry shopping counts; older digests stay valid.
 // Run from backend-live:  node --test test/dailyBriefShopping.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,5 +29,5 @@ test('shopping counts must be integers', () => {
 test('absent shopping renders as null and the prompt says to skip it', () => {
   const rendered = renderPromptTemplate(capability.userPromptTemplate, { locale: 'en' });
   assert.ok(rendered.includes('nothing is left to buy): null'));
-  assert.ok(capability.userPromptTemplate.includes('Mention shopping only when its count above is non-null'));
+  assert.ok(capability.systemPrompt.includes('omit that topic entirely'));
 });
