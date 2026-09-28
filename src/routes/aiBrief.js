@@ -215,10 +215,11 @@ function capabilityGateError(capability, callerVersion) {
 
 // ---------------------------------------------------------------------------
 // POST /v1/ai/brief/digest — stores the client's daily digest. NEVER calls the provider.
-// Idempotent: re-posting the same day's digest overwrites the stored digest, and — by
-// construction of store.saveBrief's upsert (see src/lib/store/*.js) — can never blank out or
-// invalidate an already-generated brief, so a background digest refresh never re-bills a day
-// that's already been served.
+// Idempotent: re-posting the same day's digest overwrites the stored digest. A repost whose
+// digest is MATERIALLY different from the stored one invalidates an already-generated brief
+// (see isBriefDigestStale below) so the next GET regenerates from fresh data — but an
+// identical repost, the common case on every app foreground, never re-bills a day that's
+// already been served.
 // ---------------------------------------------------------------------------
 router.post('/digest', async (req, res) => {
   if (!capability) {
@@ -247,14 +248,67 @@ router.post('/digest', async (req, res) => {
   // so a digest posted while daily_brief is mid-kill-switch is ready to generate the instant it's
   // flipped back on, without asking the app to re-POST it.
   const { subject } = subjectLib.resolveSubject(req);
+  const existing = await store.getBrief(subject, localDate);
   await store.saveBrief({ subject, localDate, digest: digestValue });
+
+  // Same-day data change: the repost above overwrites digest_json, but a brief generated
+  // earlier in the day would otherwise survive next to it — the app then displays a sentence
+  // about a trip the user deleted (or misses one they just added) until tomorrow. When the
+  // new digest is materially different, drop the cached sentence; the app's immediate GET (or
+  // the next one) regenerates from the fresh digest. Bounded cost: one extra provider call per
+  // material change, and only when the app actually re-fetches. Both store adapters clear the
+  // brief through the existing replaceBrief path (no store change needed); the new digest
+  // written above is preserved.
+  if (isBriefDigestStale(existing, digestValue)) {
+    await store.saveBrief({
+      subject,
+      localDate,
+      replaceBrief: true,
+      briefText: null,
+      briefLocale: null,
+      provider: null,
+      model: null,
+    });
+  }
 
   return res.status(200).json({ stored: true, localDate });
 });
 
 // ---------------------------------------------------------------------------
-// GET /v1/ai/brief?localDate=YYYY-MM-DD
+// canonicalDigest(value) — JSON with recursively sorted keys, so two digests carrying the
+// same information compare equal regardless of key order (the app's Encodable field order
+// vs. a JSON round-trip through the store must not count as a "change").
 // ---------------------------------------------------------------------------
+function canonicalDigest(value) {
+  if (value === null || value === undefined) return 'null';
+  if (Array.isArray(value)) return '[' + value.map(canonicalDigest).join(',') + ']';
+  if (typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalDigest(value[k])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
+// ---------------------------------------------------------------------------
+// isBriefDigestStale(existing, newDigest) — true when a brief was already generated today
+// but the newly POSTed digest carries materially different information than the one stored
+// next to it. The old design never invalidated: a trip deleted (or added) after the morning
+// generation left the app displaying a sentence about data that no longer existed, for the
+// rest of the day. A locale-only change also lands here (it IS a digest change); the GET-side
+// isBriefLocaleStale() stays as a backstop for rows written before this invalidation existed.
+// Exported for tests; production callers use it through the POST handler below.
+//
+// Deliberately NOT triggered by an empty new digest: the app never POSTs one
+// (DailyBriefService.refresh returns early on digest.isEmpty), so an empty digest carries no
+// information and must not burn a regeneration.
+// ---------------------------------------------------------------------------
+function isBriefDigestStale(existing, newDigest) {
+  if (!existing || !existing.briefText) return false;
+  if (!newDigest || typeof newDigest !== 'object' || Object.keys(newDigest).length === 0) return false;
+  const oldDigest = existing.digest && typeof existing.digest === 'object' ? existing.digest : {};
+  return canonicalDigest(oldDigest) !== canonicalDigest(newDigest);
+}
+
 // ---------------------------------------------------------------------------
 // isBriefLocaleStale(existing) — true when a cached brief exists but was generated in a
 // different language than the latest digest asks for. The digest POST overwrites digest_json
@@ -419,3 +473,4 @@ module.exports = router;
 module.exports.loadRemoteFeatures = loadRemoteFeatures;
 module.exports.loadCapability = loadCapability;
 module.exports.isBriefLocaleStale = isBriefLocaleStale;
+module.exports.isBriefDigestStale = isBriefDigestStale;
