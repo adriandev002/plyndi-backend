@@ -34,8 +34,7 @@ const PERMISSIVE_FALLBACK = Object.freeze({
     receipt_scan: true,
     trip_itinerary_day: true,
     workout_plan: true,
-    form_coach: true,
-    readiness: true
+    form_coach: true
   },
   messages: { banner: null },
   ttlSeconds: 900

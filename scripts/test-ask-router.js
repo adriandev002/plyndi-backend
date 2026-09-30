@@ -37,11 +37,11 @@ function assertDeepEqual(label, actual, expected) {
   assertEqual(label, JSON.stringify(actual), JSON.stringify(expected));
 }
 
-// The six capabilities a one-line question may genuinely reach — Plyndi-AI-Hub-Design.md's
+// The five capabilities a one-line question may genuinely reach — Plyndi-AI-Hub-Design.md's
 // "Routable" list. Declared independently here (not imported from anywhere) so this test actually
 // catches a drift, rather than trivially agreeing with the capability file.
 const ROUTABLE_INTENTS = [
-  'quick_add_parse', 'daily_plan', 'shopping_suggestions', 'budget_insights', 'readiness', 'workout_plan',
+  'quick_add_parse', 'daily_plan', 'shopping_suggestions', 'budget_insights', 'workout_plan',
 ];
 // Explicitly NOT routable — needs 18 context fields / a photo the provider gateway can't send, or
 // (daily_brief) isn't something you ask for at all. None of these may ever appear in the enum.
@@ -70,7 +70,7 @@ check('has no "card" block — it is invoked from the hub search bar, never rend
 
 const intentEnum = askRouter.jsonSchema.properties.intent.enum;
 const expectedEnum = [...ROUTABLE_INTENTS, 'navigate', 'unsupported', 'unclear'];
-assertDeepEqual('intent enum is exactly the six routable ids plus navigate/unsupported/unclear', [...intentEnum].sort(), [...expectedEnum].sort());
+assertDeepEqual('intent enum is exactly the five routable ids plus navigate/unsupported/unclear', [...intentEnum].sort(), [...expectedEnum].sort());
 for (const bannedId of NON_ROUTABLE_CAPABILITY_IDS) {
   check(`intent enum does NOT contain "${bannedId}" (not routable — see design doc §3.2)`, !intentEnum.includes(bannedId));
 }
@@ -155,7 +155,7 @@ function askRouterRun(port, context, extra) {
 }
 
 async function main() {
-  console.log('\n=== registry: ask_router is loaded (Phase 5-A adds a tenth frozen id) ===');
+  console.log('\n=== registry: ask_router is loaded (Phase 5-A adds a ninth frozen id) ===');
   const loadedIds = registry.all().map((c) => c.id).sort();
   check('ask_router is one of registry.all()', loadedIds.includes('ask_router'));
   check('ask_router is one of the frozen ids', registry.FROZEN_CAPABILITY_IDS.has('ask_router'));
@@ -165,15 +165,14 @@ async function main() {
   });
 
   // ---------------------------------------------------------------------------
-  // 3. Each of the six routable intents round-trips through POST /v1/ai/run correctly.
+  // 3. Each of the five routable intents round-trips through POST /v1/ai/run correctly.
   // ---------------------------------------------------------------------------
-  console.log('\n=== each of the six routable intents returns a valid, matching shape ===');
+  console.log('\n=== each of the five routable intents returns a valid, matching shape ===');
   const routableExamples = {
     quick_add_parse: { text: 'spent 300 on lunch', response: { intent: 'quick_add_parse', confidence: 0.94, destination: null, message: null, extracted: { type: 'expense', title: 'lunch', amount: 300, category: 'Food & Dining', date: '2026-09-19', paymentMethod: null, destination: null, budget: null } } },
     daily_plan: { text: 'plan my day', response: { intent: 'daily_plan', confidence: 0.9, destination: null, extracted: null, message: null } },
     shopping_suggestions: { text: 'what should I buy', response: { intent: 'shopping_suggestions', confidence: 0.88, destination: null, extracted: null, message: null } },
     budget_insights: { text: 'where did my money go this month', response: { intent: 'budget_insights', confidence: 0.91, destination: null, extracted: null, message: null } },
-    readiness: { text: 'am I ready to train today', response: { intent: 'readiness', confidence: 0.85, destination: null, extracted: null, message: null } },
     workout_plan: { text: 'give me a workout', response: { intent: 'workout_plan', confidence: 0.89, destination: null, extracted: null, message: null } },
   };
   for (const [intent, { text, response }] of Object.entries(routableExamples)) {
@@ -182,7 +181,7 @@ async function main() {
     const res = await askRouterRun(port, { text, locale: null }, { 'X-Plyndi-Device-ID': `DEVICE-ROUTABLE-${intent}` });
     assertEqual(`"${text}" -> 200`, res.status, 200);
     assertEqual(`"${text}" -> intent "${intent}"`, res.json && res.json.result && res.json.result.intent, intent);
-    check(`"${text}" -> intent is one of the six routable ids`, ROUTABLE_INTENTS.includes(res.json.result.intent));
+    check(`"${text}" -> intent is one of the five routable ids`, ROUTABLE_INTENTS.includes(res.json.result.intent));
     assertEqual('provider called exactly once', providerCallCount, 1);
   }
   check('quick_add_parse\'s "extracted" round-trips the same field names quick_add_parse.json itself outputs', (() => {
@@ -193,12 +192,12 @@ async function main() {
 
   // ---------------------------------------------------------------------------
   // 4. trip_itinerary_day / receipt_scan / form_coach cannot be emitted — the enum simply has no
-  //    such value (checked statically above); this confirms a well-formed run for one of the six
+  //    such value (checked statically above); this confirms a well-formed run for one of the five
   //    real routable intents never accidentally collides with a non-routable id's spelling.
   // ---------------------------------------------------------------------------
   console.log('\n=== non-routable capabilities are structurally absent from the enum (re-confirmed) ===');
   for (const bannedId of NON_ROUTABLE_CAPABILITY_IDS) {
-    check(`"${bannedId}" is not a value any of the six routable-intent tests above produced`, !Object.keys(routableExamples).includes(bannedId));
+    check(`"${bannedId}" is not a value any of the five routable-intent tests above produced`, !Object.keys(routableExamples).includes(bannedId));
   }
 
   // ---------------------------------------------------------------------------

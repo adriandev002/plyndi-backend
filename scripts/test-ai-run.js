@@ -95,14 +95,14 @@ const authHeaders = (extra) => Object.assign({ 'X-Plyndi-Client-Key': CLIENT_KEY
 
 async function main() {
   // ---------------------------------------------------------------------------
-  // 2. Every one of the ten capability files loads and validates (nine from Phase 1-A plus
-  //    ask_router, added in Phase 5-A — Plyndi-AI-Hub-Design.md §3.2).
+  // 2. Every one of the ten capability files loads and validates (eight from Phase 1-A plus
+  //    ask_router, added in Phase 5-A, plus note_extract — Plyndi-AI-Hub-Design.md §3.2).
   // ---------------------------------------------------------------------------
   console.log('\n=== capability registry: all ten load ===');
   const registry = require('../src/lib/capabilityRegistry');
   const FROZEN = [...registry.FROZEN_CAPABILITY_IDS].sort();
   const loadedIds = registry.all().map((c) => c.id).sort();
-  assertEqual('11 capability files loaded', loadedIds.length, 11);
+  assertEqual('10 capability files loaded', loadedIds.length, 10);
   assertEqual('loaded ids match the frozen ids exactly', JSON.stringify(loadedIds), JSON.stringify(FROZEN));
 
   console.log('\ncapabilities/ ids                 remote-config.json feature ids');
@@ -134,11 +134,11 @@ async function main() {
   registry.loadCapabilities();
   console.error = originalConsoleError;
   const afterBadFile = registry.all().map((c) => c.id).sort();
-  assertEqual('still exactly 11 valid capabilities loaded (bad file skipped)', afterBadFile.length, 11);
+  assertEqual('still exactly 10 valid capabilities loaded (bad file skipped)', afterBadFile.length, 10);
   check('a SKIPPING log line was printed for the malformed file', loggedSkip.includes('SKIPPING _test_malformed.json'), loggedSkip);
   fs.unlinkSync(badFile);
   registry.loadCapabilities();
-  assertEqual('back to 11 after removing the malformed file', registry.all().length, 11);
+  assertEqual('back to 10 after removing the malformed file', registry.all().length, 10);
 
   const port = await new Promise((resolve) => {
     const server = app.listen(0, () => resolve(server.address().port));
@@ -158,32 +158,32 @@ async function main() {
   // 5. enabled:false -> 403.
   // ---------------------------------------------------------------------------
   console.log('\n=== capability disabled ===');
-  const readinessPath = path.join(CAPABILITIES_DIR, 'readiness.json');
-  const originalReadiness = fs.readFileSync(readinessPath, 'utf8');
-  const disabledReadiness = JSON.parse(originalReadiness);
-  disabledReadiness.enabled = false;
-  fs.writeFileSync(readinessPath, JSON.stringify(disabledReadiness, null, 2));
+  const capabilityPath = path.join(CAPABILITIES_DIR, 'daily_plan.json');
+  const originalCapability = fs.readFileSync(capabilityPath, 'utf8');
+  const disabledCapability = JSON.parse(originalCapability);
+  disabledCapability.enabled = false;
+  fs.writeFileSync(capabilityPath, JSON.stringify(disabledCapability, null, 2));
   registry.loadCapabilities();
   resetProviderState();
-  const disabledRes = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), { capabilityId: 'readiness', context: {} });
+  const disabledRes = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), { capabilityId: 'daily_plan', context: {} });
   assertEqual('disabled capability -> 403', disabledRes.status, 403);
   assertEqual('disabled capability -> stable error code', disabledRes.json && disabledRes.json.error, 'capability_disabled');
   assertEqual('provider never called for a disabled capability', providerCallCount, 0);
-  fs.writeFileSync(readinessPath, originalReadiness);
+  fs.writeFileSync(capabilityPath, originalCapability);
   registry.loadCapabilities();
 
   // ---------------------------------------------------------------------------
   // 6. minAppVersion gate, including the "1.0" vs "1.0" 2-segment case.
   // ---------------------------------------------------------------------------
-  console.log('\n=== minAppVersion gate (readiness.json minAppVersion is "1.0") ===');
+  console.log('\n=== minAppVersion gate (daily_plan.json minAppVersion is "1.0") ===');
   resetProviderState();
-  const belowMin = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '0.9' }), { capabilityId: 'readiness', context: {} });
+  const belowMin = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '0.9' }), { capabilityId: 'daily_plan', context: {} });
   assertEqual('caller version 0.9 < minAppVersion 1.0 -> 403', belowMin.status, 403);
   assertEqual('403 body names the reason', belowMin.json && belowMin.json.error, 'app_update_required');
   assertEqual('provider never called when blocked by the version gate', providerCallCount, 0);
 
   resetProviderState();
-  const exactMin = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), { capabilityId: 'readiness', context: {} });
+  const exactMin = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), { capabilityId: 'daily_plan', context: { todayDate: '2026-09-19', tasks: [] } });
   assertEqual('caller version "1.0" == minAppVersion "1.0" (2-segment case) -> allowed', exactMin.status, 200);
   assertEqual('provider WAS called once the version gate passed', providerCallCount, 1);
 
@@ -232,13 +232,13 @@ async function main() {
   resetProviderState();
   const idemKey = 'idem-test-key-1';
   const first = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), {
-    capabilityId: 'readiness',
-    context: {},
+    capabilityId: 'daily_plan',
+    context: { todayDate: '2026-09-19', tasks: [] },
     idempotencyKey: idemKey,
   });
   const second = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), {
-    capabilityId: 'readiness',
-    context: {},
+    capabilityId: 'daily_plan',
+    context: { todayDate: '2026-09-19', tasks: [] },
     idempotencyKey: idemKey,
   });
   assertEqual('first call succeeds', first.status, 200);
@@ -254,7 +254,7 @@ async function main() {
   resetProviderState(() => {
     throw new providerGateway.ProviderError(401, secretMessage); // auth kind: no retry, no artificial delay
   });
-  const failRes = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), { capabilityId: 'readiness', context: {} });
+  const failRes = await request(port, 'POST', '/v1/ai/run', authHeaders({ 'X-Plyndi-App-Version': '1.0' }), { capabilityId: 'daily_plan', context: { todayDate: '2026-09-19', tasks: [] } });
   assertEqual('provider failure -> 503', failRes.status, 503);
   assertEqual('provider failure -> stable, non-technical error code', failRes.json && failRes.json.error, 'provider_unavailable');
   check('raw provider message never appears in the response body', !failRes.raw.includes(secretMessage), failRes.raw);

@@ -237,29 +237,29 @@ async function main() {
     assertEqual('If-None-Match with matching ETag -> 304', revalidated.status, 304);
 
     // -------------------------------------------------------------------
-    // 5. minAppVersion gate (readiness.json minAppVersion is "1.0").
+    // 5. minAppVersion gate (form_coach.json minAppVersion is "1.0").
     // -------------------------------------------------------------------
     console.log('\n=== minAppVersion gate ===');
     const belowMin = await get(port, '/v1/ai/hub', authHeaders({ 'X-Plyndi-App-Version': '0.9' }));
-    check('caller version 0.9 < minAppVersion 1.0 -> readiness card omitted', findCard(belowMin.json.sections, 'readiness') === null);
+    check('caller version 0.9 < minAppVersion 1.0 -> form_coach card omitted', findCard(belowMin.json.sections, 'form_coach') === null);
     const exactMin = await get(port, '/v1/ai/hub', authHeaders({ 'X-Plyndi-App-Version': '1.0' }));
-    check('caller version "1.0" == minAppVersion "1.0" -> readiness card present', findCard(exactMin.json.sections, 'readiness') !== null);
+    check('caller version "1.0" == minAppVersion "1.0" -> form_coach card present', findCard(exactMin.json.sections, 'form_coach') !== null);
     const noHeader = await get(port, '/v1/ai/hub', authHeaders());
-    check('no X-Plyndi-App-Version header -> readiness card still present (fail open)', findCard(noHeader.json.sections, 'readiness') !== null);
+    check('no X-Plyndi-App-Version header -> form_coach card still present (fail open)', findCard(noHeader.json.sections, 'form_coach') !== null);
 
     // -------------------------------------------------------------------
     // 6. enabled:false omits exactly that card.
     // -------------------------------------------------------------------
     console.log('\n=== capability enabled:false omits its card ===');
-    const readinessPath = path.join(CAPABILITIES_DIR, 'readiness.json');
-    const disabledReadiness = JSON.parse(originalCapabilityFiles.get('readiness.json'));
-    disabledReadiness.enabled = false;
-    fs.writeFileSync(readinessPath, JSON.stringify(disabledReadiness, null, 2));
+    const formCoachPath = path.join(CAPABILITIES_DIR, 'form_coach.json');
+    const disabledFormCoach = JSON.parse(originalCapabilityFiles.get('form_coach.json'));
+    disabledFormCoach.enabled = false;
+    fs.writeFileSync(formCoachPath, JSON.stringify(disabledFormCoach, null, 2));
     registry.loadCapabilities();
     const afterDisable = await get(port, '/v1/ai/hub', authHeaders({ 'X-Plyndi-App-Version': '1.0' }));
-    check('readiness card omitted once enabled:false, no restart', findCard(afterDisable.json.sections, 'readiness') === null);
-    check('the other eight cards are unaffected', cardIds(afterDisable.json.sections).length === allCapIds.length - 1);
-    fs.writeFileSync(readinessPath, originalCapabilityFiles.get('readiness.json'));
+    check('form_coach card omitted once enabled:false, no restart', findCard(afterDisable.json.sections, 'form_coach') === null);
+    check('the other seven cards are unaffected', cardIds(afterDisable.json.sections).length === allCapIds.length - 1);
+    fs.writeFileSync(formCoachPath, originalCapabilityFiles.get('form_coach.json'));
     registry.loadCapabilities();
 
     // -------------------------------------------------------------------
@@ -272,14 +272,14 @@ async function main() {
     aiHub.loadRemoteFeatures();
     const afterFeatureFlip = await get(port, '/v1/ai/hub', authHeaders({ 'X-Plyndi-App-Version': '1.0' }));
     check('workout_plan card omitted once its feature id is false, no restart', findCard(afterFeatureFlip.json.sections, 'workout_plan') === null);
-    check('the other eight cards are unaffected', cardIds(afterFeatureFlip.json.sections).length === allCapIds.length - 1);
+    check('the other seven cards are unaffected', cardIds(afterFeatureFlip.json.sections).length === allCapIds.length - 1);
     fs.writeFileSync(REMOTE_CONFIG_PATH, originalRemoteConfig);
     aiHub.loadRemoteFeatures();
     const afterFeatureRestore = await get(port, '/v1/ai/hub', authHeaders({ 'X-Plyndi-App-Version': '1.0' }));
     check('workout_plan card back once the feature flag is restored', findCard(afterFeatureRestore.json.sections, 'workout_plan') !== null);
 
     // -------------------------------------------------------------------
-    // 8. A malformed card is skipped; the other eight still serve; never a 500.
+    // 8. A malformed card is skipped; the other seven still serve; never a 500.
     // -------------------------------------------------------------------
     console.log('\n=== malformed card is skipped, the rest still serve ===');
     const budgetPath = path.join(CAPABILITIES_DIR, 'budget_insights.json');
@@ -294,7 +294,7 @@ async function main() {
     console.error = originalConsoleError;
     assertEqual('malformed card -> still 200, never a 500', afterMalformed.status, 200);
     check('budget_insights card omitted (malformed type)', findCard(afterMalformed.json.sections, 'budget_insights') === null);
-    check('the other eight cards still served', cardIds(afterMalformed.json.sections).length === allCapIds.length - 1);
+    check('the other seven cards still served', cardIds(afterMalformed.json.sections).length === allCapIds.length - 1);
     check('a SKIPPING log line was printed for the malformed card', loggedSkip.includes('SKIPPING card for capability "budget_insights"'), loggedSkip);
     fs.writeFileSync(budgetPath, originalCapabilityFiles.get('budget_insights.json'));
     registry.loadCapabilities();

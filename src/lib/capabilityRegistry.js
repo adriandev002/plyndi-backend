@@ -2,9 +2,10 @@
 // pattern src/routes/config.js already established for remote-config.json, reused rather than
 // invented twice.
 //
-// The original nine capability ids are FROZEN (Plyndi-AI-Hub-Design.md §10): they're already
+// The original capability ids are FROZEN (Plyndi-AI-Hub-Design.md §10): they're already
 // hardcoded in shipped Swift call sites and in remote-config.json's feature flags and must never
-// be renamed. Phase 5-A adds a tenth, `ask_router` (Plyndi-AI-Hub-Design.md §3.2) — the "Ask
+// be renamed. (`readiness` was removed from this set in Sep 2026 when the HealthKit-based
+// readiness score was deleted from the app.) Phase 5-A adds a tenth, `ask_router` (Plyndi-AI-Hub-Design.md §3.2) — the "Ask
 // Plyndi" intent router. It is a genuinely new capability, not a rename of an existing one, so
 // adding it to this set is safe under the freeze rule; once shipped it becomes just as frozen as
 // the original nine. A capability file whose id isn't in this set (or whose filename doesn't
@@ -46,7 +47,6 @@ const FROZEN_CAPABILITY_IDS = new Set([
   'trip_itinerary_day',
   'workout_plan',
   'form_coach',
-  'readiness',
   'ask_router',
   // Sep 2026 — Notes & Journal "Find tasks & expenses with AI". New capability (not a rename),
   // no hub card: it is invoked from the note editor only, same as ask_router's search bar.
