@@ -41,6 +41,14 @@ services:
         value: "false"
       - key: AI_MONTHLY_CREDIT_ALLOWANCE
         value: "15"
+      # Phase 3-B: per-plan allowances. FREE falls back to AI_MONTHLY_CREDIT_ALLOWANCE when
+      # unset, so existing deploys keep their behaviour with no config change. PREMIUM is
+      # granted only for a server-verified StoreKit 2 entitlement
+      # (POST /v1/ai/entitlement/verify) — never from a client claim.
+      - key: AI_FREE_MONTHLY_ALLOWANCE
+        value: "15"
+      - key: AI_PREMIUM_MONTHLY_ALLOWANCE
+        value: "300"
       - key: AI_CREDITS_ENFORCE
         value: "false"
       - key: AI_DAILY_CREDIT_CAP

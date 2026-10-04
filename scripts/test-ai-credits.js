@@ -1,6 +1,9 @@
-// Plain-Node smoke test for Phase 3-A: identity resolution (src/lib/subject.js), the credit
-// ledger + GET /v1/ai/entitlement, shadow-mode enforcement (AI_CREDITS_ENFORCE), and the global
-// daily spend cap (AI_DAILY_CREDIT_CAP). Same style as scripts/test-ai-run.js: no framework, one
+// Plain-Node smoke test for Phase 3-A + 3-B: identity resolution (src/lib/subject.js), the
+// credit ledger + GET /v1/ai/entitlement, shadow-mode enforcement (AI_CREDITS_ENFORCE), the
+// global daily spend cap (AI_DAILY_CREDIT_CAP), per-plan allowances via server-verified
+// StoreKit 2 entitlements (src/lib/entitlement.js — resolvePlan), and POST
+// /v1/ai/entitlement/verify's JWS verification (Apple Root CA chain, ES256 signature,
+// bundle/product/expiry/revocation). Same style as scripts/test-ai-run.js: no framework, one
 // in-process HTTP server, the provider layer stubbed (this environment can't reach OpenAI/Gemini,
 // and a suite that spends real money per run would be a bad suite regardless), and this repo's
 // only Postgres-capable environment variable (DATABASE_URL) deliberately left unset throughout —
@@ -126,7 +129,7 @@ async function main() {
   console.log('\n=== no identity headers at all still succeeds (shipped-build regression) ===');
   memoryStore._resetForTests();
   resetProviderState();
-  const bareRes = await runCapability(port, 'readiness', {}, {});
+  const bareRes = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, {});
   assertEqual('a request with zero identity headers -> 200 (not rejected)', bareRes.status, 200);
   assertEqual('provider WAS called — the request was actually served, not silently dropped', providerCallCount, 1);
 
@@ -138,7 +141,7 @@ async function main() {
   memoryStore._resetForTests();
 
   resetProviderState();
-  const jwtRes = await runCapability(port, 'readiness', {}, {
+  const jwtRes = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, {
     authorization: `Bearer ${tokenFor('user-verified-1', AI_JWT_SECRET)}`,
     'X-Plyndi-Device-ID': 'should-be-ignored-because-jwt-wins',
   });
@@ -147,17 +150,17 @@ async function main() {
   assertEqual('the verified-JWT subject used exactly 1 credit', jwtEntitlement.json.creditsUsed, 1);
 
   resetProviderState();
-  const deviceRes = await runCapability(port, 'readiness', {}, { 'X-Plyndi-Device-ID': 'DEVICE-ABC-123' });
+  const deviceRes = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, { 'X-Plyndi-Device-ID': 'DEVICE-ABC-123' });
   assertEqual('a request with only a device id -> 200', deviceRes.status, 200);
   const deviceEntitlement = await entitlement(port, { 'X-Plyndi-Device-ID': 'DEVICE-ABC-123' });
   assertEqual('the device-id subject has its OWN 1 credit, not folded into the jwt subject above', deviceEntitlement.json.creditsUsed, 1);
 
   resetProviderState();
-  const anonRes = await runCapability(port, 'readiness', {}, {});
+  const anonRes = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, {});
   assertEqual('a request with neither -> 200 (anon/hashed-IP fallback)', anonRes.status, 200);
 
   resetProviderState();
-  const badTokenRes = await runCapability(port, 'readiness', {}, {
+  const badTokenRes = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, {
     authorization: 'Bearer not-a-real-jwt-at-all',
     'X-Plyndi-Device-ID': 'DEVICE-FALLBACK-1',
   });
@@ -172,8 +175,8 @@ async function main() {
   memoryStore._resetForTests();
   const mixedDevice = { 'X-Plyndi-Device-ID': 'DEVICE-MIXED-1' };
   resetProviderState();
-  const readinessRun = await runCapability(port, 'readiness', {}, mixedDevice);
-  assertEqual('readiness (creditCost 1) run succeeds', readinessRun.status, 200);
+  const quickAddParseRun = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, mixedDevice);
+  assertEqual('quick_add_parse (creditCost 1) run succeeds', quickAddParseRun.status, 200);
   resetProviderState(() => JSON.stringify({ days: [{ day: 1, exercises: [] }] }));
   const workoutRun = await runCapability(port, 'workout_plan', { goal: 'strength', availableMinutes: 30 }, mixedDevice);
   assertEqual('workout_plan (creditCost 3) run succeeds', workoutRun.status, 200);
@@ -188,8 +191,8 @@ async function main() {
   const idemDevice = { 'X-Plyndi-Device-ID': 'DEVICE-IDEM-1' };
   const idemKey = 'idem-credits-test-1';
   resetProviderState();
-  const first = await runCapability(port, 'readiness', {}, idemDevice, idemKey);
-  const second = await runCapability(port, 'readiness', {}, idemDevice, idemKey);
+  const first = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, idemDevice, idemKey);
+  const second = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, idemDevice, idemKey);
   assertEqual('first call succeeds', first.status, 200);
   assertEqual('replay (same idempotencyKey) succeeds', second.status, 200);
   assertEqual('same runId returned both times', second.json.runId, first.json.runId);
@@ -213,18 +216,18 @@ async function main() {
   for (let i = 0; i < 5; i += 1) {
     resetProviderState();
     // eslint-disable-next-line no-await-in-loop
-    const r = await runCapability(port, 'readiness', {}, overDevice);
+    const r = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, overDevice);
     assertEqual(`run ${i + 1}/5 (within the 5-credit allowance) succeeds`, r.status, 200);
   }
   resetProviderState();
-  const sixthRun = await runCapability(port, 'readiness', {}, overDevice);
+  const sixthRun = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, overDevice);
   assertEqual('6th run (now over the 5-credit allowance) STILL succeeds with AI_CREDITS_ENFORCE=false', sixthRun.status, 200);
   assertEqual('provider WAS called for the over-allowance run — shadow mode never refuses', providerCallCount, 1);
   check('the overage was logged via console.warn ("over its monthly allowance")', sawOverageWarning);
   console.warn = originalConsoleWarn;
   const shadowEntitlement = await entitlement(port, overDevice);
   assertEqual('GET /v1/ai/entitlement reports enforcing:false while the flag is off', shadowEntitlement.json.enforcing, false);
-  assertEqual('GET /v1/ai/entitlement never claims a known plan — always "unknown"', shadowEntitlement.json.plan, 'unknown');
+  assertEqual('GET /v1/ai/entitlement reports plan "free" when no verified entitlement exists', shadowEntitlement.json.plan, 'free');
 
   // ---------------------------------------------------------------------------
   // 6. AI_CREDITS_ENFORCE=true: the SAME over-allowance subject now gets 402 with reset fields.
@@ -232,7 +235,7 @@ async function main() {
   console.log('\n=== AI_CREDITS_ENFORCE=true: the same over-allowance subject now gets 402 ===');
   process.env.AI_CREDITS_ENFORCE = 'true';
   resetProviderState();
-  const seventhRun = await runCapability(port, 'readiness', {}, overDevice);
+  const seventhRun = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, overDevice);
   assertEqual('7th run for the same over-allowance subject -> 402 once enforcement is on', seventhRun.status, 402);
   assertEqual('402 body names the stable error code', seventhRun.json && seventhRun.json.error, 'credits_exhausted');
   check('402 body includes a numeric creditsRemaining', seventhRun.json && typeof seventhRun.json.creditsRemaining === 'number', JSON.stringify(seventhRun.json));
@@ -249,17 +252,251 @@ async function main() {
   memoryStore._resetForTests();
   process.env.AI_DAILY_CREDIT_CAP = '2'; // small cap: 2 one-credit runs exhaust it
   resetProviderState();
-  const capFirst = await runCapability(port, 'readiness', {}, { 'X-Plyndi-Device-ID': 'DEVICE-CAP-A' });
+  const capFirst = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, { 'X-Plyndi-Device-ID': 'DEVICE-CAP-A' });
   assertEqual('1st credit spent today (cap is 2) -> 200', capFirst.status, 200);
   resetProviderState();
-  const capSecond = await runCapability(port, 'readiness', {}, { 'X-Plyndi-Device-ID': 'DEVICE-CAP-B' });
+  const capSecond = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, { 'X-Plyndi-Device-ID': 'DEVICE-CAP-B' });
   assertEqual('2nd credit spent today, a DIFFERENT subject (the cap is global, not per-subject) -> 200', capSecond.status, 200);
   resetProviderState();
-  const capThird = await runCapability(port, 'readiness', {}, { 'X-Plyndi-Device-ID': 'DEVICE-CAP-C' });
+  const capThird = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, { 'X-Plyndi-Device-ID': 'DEVICE-CAP-C' });
   assertEqual('3rd request today (cap already at 2/2), a THIRD distinct subject -> 429', capThird.status, 429);
   assertEqual('429 body names the stable error code', capThird.json && capThird.json.error, 'daily_capacity_reached');
   assertEqual('provider call count is ZERO for the capped request — it never reached the provider', providerCallCount, 0);
   process.env.AI_DAILY_CREDIT_CAP = '1000'; // restore
+
+  // ---------------------------------------------------------------------------
+  // 8. Phase 3-B: per-plan allowances. 'premium' requires a server-verified entitlement
+  //    (written only via POST /v1/ai/entitlement/verify, or directly in this suite to
+  //    simulate one); everything else is 'free'. Both /v1/ai/run enforcement and the
+  //    /v1/ai/entitlement meter must agree, because both call resolvePlan().
+  // ---------------------------------------------------------------------------
+  console.log('\n=== Phase 3-B: free vs premium plans via server-verified entitlement ===');
+  memoryStore._resetForTests();
+  process.env.AI_CREDITS_ENFORCE = 'true';
+  process.env.AI_MONTHLY_CREDIT_ALLOWANCE = '5'; // free tier (legacy var; the fallback)
+  process.env.AI_PREMIUM_MONTHLY_ALLOWANCE = '8'; // premium tier (small, for testing)
+  delete process.env.AI_FREE_MONTHLY_ALLOWANCE;
+
+  const freeDevice = { 'X-Plyndi-Device-ID': 'DEVICE-FREE-1' };
+  const premDevice = { 'X-Plyndi-Device-ID': 'DEVICE-PREM-1' };
+
+  // 8a. a subject with no verified entitlement is 'free'.
+  const freeEnt0 = await entitlement(port, freeDevice);
+  assertEqual('fresh subject reports plan=free', freeEnt0.json.plan, 'free');
+  assertEqual('fresh subject creditsIncluded = free allowance (5)', freeEnt0.json.creditsIncluded, 5);
+
+  // 8b. a stored, verified, unexpired entitlement -> 'premium' with the premium allowance.
+  // (Written directly here to simulate what POST /v1/ai/entitlement/verify writes after
+  // cryptographic verification — section 9 exercises the real verify path end to end.)
+  await memoryStore.saveEntitlement('dev:DEVICE-PREM-1', {
+    productId: 'com.axel.Plyndi.Plyndi.premium.monthly',
+    originalTransactionId: '2000000123456789',
+    expiresAtMs: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    bundleId: 'com.axel.Plyndi.Plyndi',
+  });
+  const premEnt0 = await entitlement(port, premDevice);
+  assertEqual('subject with a verified entitlement reports plan=premium', premEnt0.json.plan, 'premium');
+  assertEqual('premium creditsIncluded = premium allowance (8)', premEnt0.json.creditsIncluded, 8);
+  check('premium meter includes entitlementExpiresAt', typeof premEnt0.json.entitlementExpiresAt === 'string');
+
+  // 8c. enforcement distinguishes: the premium subject may exceed the FREE allowance...
+  for (let i = 0; i < 5; i += 1) {
+    resetProviderState();
+    // eslint-disable-next-line no-await-in-loop
+    const r = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, premDevice);
+    assertEqual(`premium run ${i + 1}/5 succeeds`, r.status, 200);
+  }
+  resetProviderState();
+  const premSixth = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, premDevice);
+  assertEqual('premium 6th run — OVER the free allowance (5) but UNDER premium (8) — succeeds', premSixth.status, 200);
+  assertEqual('provider WAS called for it', providerCallCount, 1);
+
+  // ...while a free subject at the same usage is refused, with plan:'free' in the body.
+  for (let i = 0; i < 5; i += 1) {
+    resetProviderState();
+    // eslint-disable-next-line no-await-in-loop
+    await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, freeDevice);
+  }
+  resetProviderState();
+  const freeSixth = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, freeDevice);
+  assertEqual('free 6th run (over the 5-credit free allowance) -> 402', freeSixth.status, 402);
+  assertEqual('402 body carries plan=free', freeSixth.json && freeSixth.json.plan, 'free');
+  assertEqual('provider NEVER called for the refused free run', providerCallCount, 0);
+
+  // 8d. ...and the premium subject IS refused past the PREMIUM allowance, with plan:'premium'.
+  resetProviderState();
+  await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, premDevice); // 7th credit
+  resetProviderState();
+  await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, premDevice); // 8th credit
+  resetProviderState();
+  const premNinth = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, premDevice);
+  assertEqual('premium 9th run (over the 8-credit premium allowance) -> 402', premNinth.status, 402);
+  assertEqual('402 body carries plan=premium', premNinth.json && premNinth.json.plan, 'premium');
+  assertEqual('provider NEVER called for the refused premium run', providerCallCount, 0);
+
+  // 8e. an expired entitlement lapses back to free.
+  await memoryStore.saveEntitlement('dev:DEVICE-PREM-1', {
+    productId: 'com.axel.Plyndi.Plyndi.premium.monthly',
+    originalTransactionId: '2000000123456789',
+    expiresAtMs: Date.now() - 1000,
+    bundleId: 'com.axel.Plyndi.Plyndi',
+  });
+  const lapsedEnt = await entitlement(port, premDevice);
+  assertEqual('expired entitlement -> plan falls back to free', lapsedEnt.json.plan, 'free');
+  assertEqual('lapsed creditsIncluded = free allowance again', lapsedEnt.json.creditsIncluded, 5);
+
+  // 8f. a revoked entitlement is free too (fail closed).
+  await memoryStore.saveEntitlement('dev:DEVICE-PREM-1', {
+    productId: 'com.axel.Plyndi.Plyndi.premium.monthly',
+    originalTransactionId: '2000000123456789',
+    expiresAtMs: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    revokedAtMs: Date.now(),
+    bundleId: 'com.axel.Plyndi.Plyndi',
+  });
+  const revokedEnt = await entitlement(port, premDevice);
+  assertEqual('revoked entitlement -> plan=free', revokedEnt.json.plan, 'free');
+
+  process.env.AI_CREDITS_ENFORCE = 'false'; // restore the shadow-mode default
+
+  // ---------------------------------------------------------------------------
+  // 9. POST /v1/ai/entitlement/verify — StoreKit JWS verification end to end. The JWS is
+  //    signed by a throwaway EC P-256 CA chain generated here with openssl (the route is
+  //    pointed at that test root via ENTITLEMENT_TRUSTED_ROOT_PEM_PATH, which it reads
+  //    fresh per request). Every rejection must be a 422 with the stable reason code and
+  //    must store nothing — the plan stays 'free'.
+  // ---------------------------------------------------------------------------
+  console.log('\n=== POST /v1/ai/entitlement/verify: StoreKit JWS verification ===');
+  memoryStore._resetForTests();
+
+  const { execFileSync: execFile } = require('child_process');
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+
+  function verify(portNum, body, identityHeaders) {
+    return request(portNum, 'POST', '/v1/ai/entitlement/verify', baseHeaders(identityHeaders), body);
+  }
+  const vDevice = { 'X-Plyndi-Device-ID': 'DEVICE-VERIFY-1' };
+
+  // 9a. missing / wrong-typed body -> 400 (no crypto needed).
+  const missingRes = await verify(port, {}, vDevice);
+  assertEqual('POST /verify with no signedTransaction -> 400', missingRes.status, 400);
+  assertEqual('400 body names the stable error code', missingRes.json && missingRes.json.error, 'invalid_request');
+  const wrongTypeRes = await verify(port, { signedTransaction: 12345 }, vDevice);
+  assertEqual('POST /verify with non-string signedTransaction -> 400', wrongTypeRes.status, 400);
+
+  // 9b. garbage JWS -> 422 malformed_jws, nothing stored.
+  const garbageRes = await verify(port, { signedTransaction: 'not-a-jws' }, vDevice);
+  assertEqual('POST /verify with garbage -> 422', garbageRes.status, 422);
+  assertEqual('422 body names the stable error code', garbageRes.json && garbageRes.json.error, 'entitlement_unverified');
+  assertEqual('422 body carries the reason code', garbageRes.json && garbageRes.json.reason, 'malformed_jws');
+  const afterGarbage = await entitlement(port, vDevice);
+  assertEqual('a rejected JWS stores nothing — plan stays free', afterGarbage.json.plan, 'free');
+
+  let haveOpenssl = true;
+  try {
+    execFile('openssl', ['version'], { stdio: 'ignore' });
+  } catch (_e) { haveOpenssl = false; }
+
+  if (!haveOpenssl) {
+    console.log('  SKIP  openssl not on PATH — skipping JWS crypto scenarios (9c-9i)');
+  } else {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plyndi-enttest-'));
+    const sh = (args) => execFile('openssl', args, { cwd: tmpDir, stdio: 'ignore' });
+    // Throwaway chain: test root -> test intermediate -> test leaf (mirrors Apple's
+    // root -> WWDR intermediate -> leaf shape).
+    sh(['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+      '-keyout', 'root-key.pem', '-out', 'root-cert.pem', '-days', '3650', '-nodes',
+      '-subj', '/CN=Plyndi Test Root CA']);
+    fs.writeFileSync(path.join(tmpDir, 'ext-inter.cnf'),
+      'basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign,cRLSign\n');
+    sh(['req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+      '-keyout', 'inter-key.pem', '-out', 'inter.csr', '-nodes',
+      '-subj', '/CN=Plyndi Test Intermediate']);
+    sh(['x509', '-req', '-in', 'inter.csr', '-CA', 'root-cert.pem', '-CAkey', 'root-key.pem',
+      '-CAcreateserial', '-out', 'inter-cert.pem', '-days', '1825', '-extfile', 'ext-inter.cnf']);
+    fs.writeFileSync(path.join(tmpDir, 'ext-leaf.cnf'),
+      'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n');
+    sh(['req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+      '-keyout', 'leaf-key.pem', '-out', 'leaf.csr', '-nodes',
+      '-subj', '/CN=Plyndi Test Leaf']);
+    sh(['x509', '-req', '-in', 'leaf.csr', '-CA', 'inter-cert.pem', '-CAkey', 'inter-key.pem',
+      '-CAcreateserial', '-out', 'leaf-cert.pem', '-days', '825', '-extfile', 'ext-leaf.cnf']);
+
+    const b64der = (name) => fs.readFileSync(path.join(tmpDir, name)).toString('base64');
+    const b64u = (buf) => Buffer.from(buf).toString('base64url');
+    const chain = [b64der('leaf-cert.pem'), b64der('inter-cert.pem'), b64der('root-cert.pem')];
+    const leafKeyPem = fs.readFileSync(path.join(tmpDir, 'leaf-key.pem'), 'utf8');
+
+    // Point the verifier at the TEST root (read fresh per request, so mid-run is fine).
+    process.env.ENTITLEMENT_TRUSTED_ROOT_PEM_PATH = path.join(tmpDir, 'root-cert.pem');
+
+    function signJws(payload, keyPem, x5c) {
+      const h = b64u(JSON.stringify({ alg: 'ES256', x5c }));
+      const p = b64u(JSON.stringify(payload));
+      const sig = crypto.sign('sha256', Buffer.from(`${h}.${p}`, 'utf8'),
+        { key: keyPem, dsaEncoding: 'ieee-p1363' });
+      return `${h}.${p}.${b64u(sig)}`;
+    }
+    const txPayload = (overrides) => Object.assign({
+      bundleId: 'com.axel.Plyndi.Plyndi',
+      productId: 'com.axel.Plyndi.Plyndi.premium.monthly',
+      transactionId: '2000000123456789',
+      originalTransactionId: '2000000123456789',
+      expiresDate: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      environment: 'Xcode',
+    }, overrides);
+
+    // 9c. happy path -> 200, and the meter flips to premium with the premium allowance.
+    const goodJws = signJws(txPayload(), leafKeyPem, chain);
+    const goodRes = await verify(port, { signedTransaction: goodJws }, vDevice);
+    assertEqual('POST /verify with a valid test-chain JWS -> 200', goodRes.status, 200);
+    assertEqual('200 body reports plan=premium', goodRes.json && goodRes.json.plan, 'premium');
+    check('200 body includes expiresAt', goodRes.json && typeof goodRes.json.expiresAt === 'string');
+    const afterGood = await entitlement(port, vDevice);
+    assertEqual('after verify, GET /entitlement reports plan=premium', afterGood.json.plan, 'premium');
+    assertEqual('the meter uses the premium allowance (8)', afterGood.json.creditsIncluded, 8);
+    // And enforcement agrees with the meter — the same resolvePlan() serves both.
+    resetProviderState();
+    for (let i = 0; i < 6; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, vDevice);
+    }
+    resetProviderState();
+    const overFree = await runCapability(port, 'quick_add_parse', { text: 'spent 300 on lunch', todayISO: '2026-09-19' }, vDevice);
+    assertEqual('verified-premium subject runs past the free allowance (5) -> 200', overFree.status, 200);
+
+    // 9d-9h. every failure mode -> 422 with its reason, storing nothing.
+    async function expectReject(label, jws, reason) {
+      const dev = { 'X-Plyndi-Device-ID': `DEVICE-VERIFY-${reason.toUpperCase()}` };
+      // eslint-disable-next-line no-await-in-loop
+      const r = await verify(port, { signedTransaction: jws }, dev);
+      assertEqual(`${label} -> 422`, r.status, 422);
+      assertEqual(`${label} reason code`, r.json && r.json.reason, reason);
+      // eslint-disable-next-line no-await-in-loop
+      const ent = await entitlement(port, dev);
+      assertEqual(`${label}: nothing stored, plan stays free`, ent.json.plan, 'free');
+    }
+    await expectReject('wrong bundleId', signJws(txPayload({ bundleId: 'com.evil.app' }), leafKeyPem, chain), 'wrong_bundle');
+    await expectReject('unknown productId', signJws(txPayload({ productId: 'com.evil.premium' }), leafKeyPem, chain), 'unknown_product');
+    await expectReject('expired transaction', signJws(txPayload({ expiresDate: Date.now() - 1000 }), leafKeyPem, chain), 'expired');
+    await expectReject('revoked transaction', signJws(txPayload({ revocationDate: Date.now() }), leafKeyPem, chain), 'revoked');
+
+    // Tampered signature: flip the tail of the signature segment (still valid base64url).
+    const tParts = goodJws.split('.');
+    tParts[2] = tParts[2].slice(0, -2) + (tParts[2].slice(-2) === 'AA' ? 'BB' : 'AA');
+    await expectReject('tampered signature', tParts.join('.'), 'bad_signature');
+
+    // 9i. a chain anchored at a DIFFERENT root the verifier doesn't trust.
+    sh(['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
+      '-keyout', 'evil-key.pem', '-out', 'evil-cert.pem', '-days', '3650', '-nodes',
+      '-subj', '/CN=Evil Root']);
+    const evilKeyPem = fs.readFileSync(path.join(tmpDir, 'evil-key.pem'), 'utf8');
+    await expectReject('untrusted root', signJws(txPayload(), evilKeyPem, [b64der('evil-cert.pem')]), 'untrusted_chain');
+
+    delete process.env.ENTITLEMENT_TRUSTED_ROOT_PEM_PATH;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 
   // ---------------------------------------------------------------------------
   // Final sanity: the server is still up and serving after everything above.

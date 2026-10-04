@@ -71,16 +71,34 @@ CREATE INDEX IF NOT EXISTS ai_credit_ledger_created_at ON ai_credit_ledger (crea
 -- Pre-Deploy Command on every deploy).
 ALTER TABLE ai_credit_ledger ADD COLUMN IF NOT EXISTS counts_toward_allowance BOOLEAN NOT NULL DEFAULT true;
 
--- Lightweight registry of every subject the ledger has ever recorded a charge for. `plan` is
--- hardcoded 'unknown' by src/lib/store/postgresStore.js today — there is no server-verifiable
--- Premium signal yet (see src/routes/aiEntitlement.js's header comment). This table exists so a
--- future StoreKit-receipt-verified entitlement phase has somewhere to write a real plan value
--- without a schema change, not because anything reads `plan` from it today.
+-- Lightweight registry of every subject the ledger has ever recorded a charge for. `plan` stays
+-- 'unknown' here by design — the real, server-verified Premium signal lives in ai_entitlements
+-- below (Phase 3-B), and src/lib/entitlement.js's resolvePlan() is the single place a plan is
+-- decided, so nothing reads `plan` from this table.
 CREATE TABLE IF NOT EXISTS users_ai (
   scope_key TEXT PRIMARY KEY,
   plan TEXT NOT NULL DEFAULT 'unknown',
   verified BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Phase 3-B — server-verified Premium entitlements (src/lib/entitlement.js). ONE row per
+-- subject: the app POSTs a StoreKit 2 signed-transaction JWS to /v1/ai/entitlement/verify, the
+-- server cryptographically verifies it (Apple Root CA - G3 chain, ES256 signature, bundleId,
+-- productId, expiry, revocation), and only then writes here. resolvePlan() grants the Premium
+-- allowance only while a row exists, is unexpired, and is unrevoked — never from anything the
+-- client claims about itself. A re-verified subscription upserts over the old row (the app
+-- re-syncs on every launch); expired/revoked rows are KEPT so resolvePlan() fails closed on
+-- the timestamps rather than on row absence.
+CREATE TABLE IF NOT EXISTS ai_entitlements (
+  subject TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL,
+  original_transaction_id TEXT,
+  expires_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  bundle_id TEXT,
+  verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

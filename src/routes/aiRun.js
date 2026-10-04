@@ -36,6 +36,7 @@ const { validate: validateContext } = require('../lib/jsonSchemaLite');
 const { renderPromptTemplate } = require('../lib/renderPromptTemplate');
 const subjectLib = require('../lib/subject');
 const { currentBillingPeriod } = require('../lib/billingPeriod');
+const { resolvePlan } = require('../lib/entitlement');
 
 // A hard ceiling on the serialized `context` payload, independent of and stricter than the
 // global express.json({limit:'1mb'}) body cap in server.js — this exists specifically so a huge
@@ -58,13 +59,13 @@ const CONTEXT_MAX_BYTES = Number(process.env.AI_CONTEXT_MAX_BYTES || 20000);
 function creditsEnforceFlag() {
   return process.env.AI_CREDITS_ENFORCE === 'true';
 }
-// Applied uniformly to every subject regardless of claimed Premium status — there is no
-// server-verifiable entitlement yet (see src/routes/aiEntitlement.js's header comment), so
-// pretending to grant Premium's larger allowance here would be trusting the same client-side
-// signal this whole phase exists to stop trusting.
-function monthlyCreditAllowance() {
-  return Number(process.env.AI_MONTHLY_CREDIT_ALLOWANCE) || 15;
-}
+// Applied per plan, not uniformly — resolvePlan() (src/lib/entitlement.js) returns 'premium'
+// ONLY for a subject with a cryptographically verified, unexpired, unrevoked StoreKit 2
+// entitlement (POST /v1/ai/entitlement/verify); everyone else is 'free'. The allowances come
+// from AI_FREE_MONTHLY_ALLOWANCE (default: legacy AI_MONTHLY_CREDIT_ALLOWANCE, 15) and
+// AI_PREMIUM_MONTHLY_ALLOWANCE (default 300) — read fresh from process.env on every request
+// so tests can flip tiers mid-run. This is the same function GET /v1/ai/entitlement reports
+// with, so the meter and the enforcement can never disagree.
 // The ONE limit that enforces unconditionally, no flag, from day one — a leaked
 // CLIENT_SHARED_KEY draining the month's OpenAI/Gemini budget overnight is the catastrophic case
 // this exists to stop (Plyndi-AI-Hub-Design.md §7's Phase 3 gate).
@@ -153,14 +154,18 @@ router.post('/run', async (req, res) => {
   }
 
   // 7. per-subject monthly allowance — SHADOW MODE by default (see creditsEnforceFlag() above).
+  // The allowance is the SUBJECT'S PLAN allowance (free vs premium via resolvePlan), not one
+  // global number anymore.
   const { periodStart, periodEnd } = currentBillingPeriod();
   const creditsUsedSoFar = await store.creditsUsed(subject, periodStart);
-  const allowance = monthlyCreditAllowance();
+  const plan = await resolvePlan(subject, store);
+  const allowance = plan.allowance;
   const wouldExceedAllowance = creditsUsedSoFar + capability.creditCost > allowance;
   if (wouldExceedAllowance) {
     if (creditsEnforceFlag()) {
       return res.status(402).json({
         error: 'credits_exhausted',
+        plan: plan.plan,
         creditsUsed: creditsUsedSoFar,
         creditsIncluded: allowance,
         creditsRemaining: Math.max(allowance - creditsUsedSoFar, 0),

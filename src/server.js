@@ -97,6 +97,13 @@ app.use('/v1/content', contentRoute);
 // rate-limited per IP, and has its request body sanitized — in that order — before any route
 // handler (or upstream API) sees it.
 app.use(limiter);
+// POST /v1/ai/entitlement/verify carries a StoreKit 2 signed-transaction JWS whose base64
+// must reach the verifier byte-exact — sanitizeBody's PII redaction (card/phone patterns)
+// can match digit runs inside base64 and corrupt the signature, so this one route sits ahead
+// of sanitizeBody. Client-key check and rate limiter still apply; only the PII scrubber is
+// skipped, which is safe: a JWS carries no PII, only Apple's signature over a transaction.
+// See src/routes/aiEntitlement.js's header comment.
+app.use('/v1/ai/entitlement/verify', aiEntitlementRoute.verifyRouter);
 app.use(sanitizeBody);
 
 app.use('/v1/gemini', geminiRoute);

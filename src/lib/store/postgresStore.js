@@ -174,6 +174,54 @@ async function globalSpendToday() {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3-B — server-verified Premium entitlements (src/lib/entitlement.js). One row per
+// subject; ON CONFLICT upserts so the app's per-launch JWS re-sync overwrites the old row
+// instead of conflicting. Written ONLY by POST /v1/ai/entitlement/verify after
+// verifySignedTransaction() cryptographically verified a StoreKit 2 signed transaction;
+// read ONLY by resolvePlan(). An expired/revoked row is kept (not deleted) so resolvePlan()
+// fails closed on the timestamps rather than on row absence.
+// ---------------------------------------------------------------------------
+
+// entry: { productId, originalTransactionId?, expiresAtMs?, revokedAtMs?, bundleId? }
+async function saveEntitlement(subject, entry) {
+  await getPool().query(
+    `INSERT INTO ai_entitlements
+       (subject, product_id, original_transaction_id, expires_at, revoked_at, bundle_id, verified_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+     ON CONFLICT (subject) DO UPDATE SET
+       product_id = EXCLUDED.product_id,
+       original_transaction_id = EXCLUDED.original_transaction_id,
+       expires_at = EXCLUDED.expires_at,
+       revoked_at = EXCLUDED.revoked_at,
+       bundle_id = EXCLUDED.bundle_id,
+       verified_at = EXCLUDED.verified_at,
+       updated_at = now()`,
+    [
+      subject,
+      entry.productId,
+      entry.originalTransactionId || null,
+      entry.expiresAtMs == null ? null : new Date(Number(entry.expiresAtMs)),
+      entry.revokedAtMs == null ? null : new Date(Number(entry.revokedAtMs)),
+      entry.bundleId || null,
+    ]
+  );
+}
+
+async function getEntitlement(subject) {
+  const { rows } = await getPool().query('SELECT * FROM ai_entitlements WHERE subject = $1', [subject]);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    productId: row.product_id,
+    originalTransactionId: row.original_transaction_id,
+    expiresAtMs: row.expires_at ? new Date(row.expires_at).getTime() : null,
+    revokedAtMs: row.revoked_at ? new Date(row.revoked_at).getTime() : null,
+    bundleId: row.bundle_id,
+    verifiedAtMs: new Date(row.verified_at).getTime(),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Phase 4-A (Plyndi-AI-Hub-Design.md §3.1, §4.6) — Daily Brief cache. See db/schema.sql's
 // ai_briefs comment: PRIMARY KEY (subject, local_date) is the once-per-user-per-day guarantee,
 // relied on here via ON CONFLICT, never a read-then-write check (same reasoning saveRun's
@@ -647,6 +695,8 @@ module.exports = {
   recordCredit,
   creditsUsed,
   globalSpendToday,
+  saveEntitlement,
+  getEntitlement,
   saveBrief,
   getBrief,
   listExploreCards,

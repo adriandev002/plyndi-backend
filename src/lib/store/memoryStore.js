@@ -34,6 +34,11 @@ const BRIEF_TTL_MS = Number(process.env.AI_BRIEF_STORE_TTL_MS || 90 * 24 * 60 * 
 const runs = new Map(); // runId -> run
 const idempotencyIndex = new Map(); // "<scopeKey>:<idempotencyKey>" -> runId
 let ledger = []; // credit ledger entries, insertion order (oldest first)
+// Phase 3-B — server-verified Premium entitlements (src/lib/entitlement.js). One entry per
+// subject; a re-verified subscription overwrites the old row, which is exactly what the app's
+// per-launch JWS re-sync wants. Keyed by the same subject src/lib/subject.js resolves for
+// the credit ledger, so plan and ledger can never disagree about "who".
+const entitlements = new Map(); // subject -> { productId, originalTransactionId, expiresAtMs, revokedAtMs, bundleId, verifiedAtMs }
 const briefs = new Map(); // "<subject>::<localDate>" -> { subject, localDate, digest, briefText, briefLocale, provider, model, createdAtMs }
 
 function idempotencyKeyFor(scopeKey, idempotencyKey) {
@@ -135,6 +140,31 @@ async function globalSpendToday() {
   purgeExpiredLedger();
   const cutoffMs = startOfUtcDay().getTime();
   return ledger.reduce((sum, entry) => (entry.createdAtMs >= cutoffMs ? sum + entry.delta : sum), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3-B — server-verified Premium entitlements. Written ONLY by
+// POST /v1/ai/entitlement/verify after src/lib/entitlement.js's verifySignedTransaction()
+// has cryptographically verified a StoreKit 2 signed transaction; read ONLY by
+// resolvePlan() in that same module. Nothing here ever trusts a client claim — see that
+// file's header comment for the full trust story.
+// ---------------------------------------------------------------------------
+
+// entry: { productId, originalTransactionId?, expiresAtMs?, revokedAtMs?, bundleId? }
+async function saveEntitlement(subject, entry) {
+  entitlements.set(subject, {
+    productId: entry.productId,
+    originalTransactionId: entry.originalTransactionId || null,
+    expiresAtMs: entry.expiresAtMs == null ? null : Number(entry.expiresAtMs),
+    revokedAtMs: entry.revokedAtMs == null ? null : Number(entry.revokedAtMs),
+    bundleId: entry.bundleId || null,
+    verifiedAtMs: Date.now(),
+  });
+}
+
+async function getEntitlement(subject) {
+  const ent = entitlements.get(subject);
+  return ent ? { ...ent } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +617,7 @@ function _resetForTests() {
   runs.clear();
   idempotencyIndex.clear();
   ledger = [];
+  entitlements.clear();
   briefs.clear();
   exploreClicks = [];
   homeBanners.clear();
@@ -603,6 +634,8 @@ module.exports = {
   recordCredit,
   creditsUsed,
   globalSpendToday,
+  saveEntitlement,
+  getEntitlement,
   saveBrief,
   getBrief,
   listExploreCards,
