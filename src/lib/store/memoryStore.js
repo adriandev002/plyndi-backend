@@ -610,6 +610,31 @@ async function homeBannerStats({ fromDay, toDay }) {
   return [...stats.values()];
 }
 
+// ---------------------------------------------------------------------------
+// Minimal funnel analytics (POST /v1/analytics/events) — see src/routes/analytics.js.
+// Raw event rows, capped in memory. No querying surface: the server logs + the
+// Postgres table (when DATABASE_URL is set) are the viewer for now.
+// ---------------------------------------------------------------------------
+const analyticsEvents = [];
+let analyticsEventSeq = 1;
+const MAX_ANALYTICS_EVENTS = 10000;
+
+async function recordAnalyticsEvent({ event, properties, deviceId, receivedAt }) {
+  const row = {
+    id: analyticsEventSeq,
+    event,
+    properties: properties ?? {},
+    deviceId: deviceId ?? null,
+    receivedAt: receivedAt ?? new Date(),
+  };
+  analyticsEventSeq += 1;
+  analyticsEvents.push(row);
+  if (analyticsEvents.length > MAX_ANALYTICS_EVENTS) {
+    analyticsEvents.splice(0, analyticsEvents.length - MAX_ANALYTICS_EVENTS);
+  }
+  return row.id;
+}
+
 // Test-only reset so scripts/test-ai-credits.js and scripts/test-ai-brief.js can start each
 // scenario from a clean store, the same way scripts/test-ai-run.js already resets
 // providerGateway's circuit breaker between cases. Production code never calls this.
@@ -624,6 +649,8 @@ function _resetForTests() {
   homeBannerText.clear();
   homeBannerClicks = [];
   homeBannerImpressions.clear();
+  analyticsEvents.length = 0;
+  analyticsEventSeq = 1;
 }
 
 module.exports = {
@@ -653,5 +680,6 @@ module.exports = {
   recordHomeBannerClick,
   recordHomeBannerImpressions,
   homeBannerStats,
+  recordAnalyticsEvent,
   _resetForTests,
 };

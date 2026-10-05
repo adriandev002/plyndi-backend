@@ -39,6 +39,10 @@ process.env.AI_JWT_SECRET = AI_JWT_SECRET;
 process.env.AI_CREDITS_ENFORCE = 'false';
 process.env.AI_MONTHLY_CREDIT_ALLOWANCE = '5';
 process.env.AI_DAILY_CREDIT_CAP = '1000';
+// This suite fires ~65 requests at one in-process server; the default 60/hour general
+// limiter would 429 the tail (the 9d-9i rejection scenarios). Pin it high so the suite
+// exercises verification logic, not the limiter (test-rate-limits.js covers the limiter).
+process.env.RATE_LIMIT_MAX = '100000';
 delete process.env.DATABASE_URL;
 
 // ---------------------------------------------------------------------------

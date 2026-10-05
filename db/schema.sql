@@ -290,3 +290,17 @@ CREATE TABLE IF NOT EXISTS home_banner_impressions (
   impressions BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (banner_id, day)
 );
+
+-- Minimal funnel analytics (POST /v1/analytics/events): paywall_viewed → trial_started →
+-- purchased/cancelled plus the app's activation events. Raw rows only — no user id, no IP,
+-- no PII; device_id is the app's random per-install UUID. Not a foreign key to anything,
+-- so history outlives any other record.
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id BIGSERIAL PRIMARY KEY,
+  event TEXT NOT NULL,
+  device_id TEXT,
+  properties JSONB NOT NULL DEFAULT '{}',
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS analytics_events_event_received_at ON analytics_events (event, received_at);

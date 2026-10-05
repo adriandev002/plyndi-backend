@@ -17,6 +17,7 @@ const aiRunRoute = require('./routes/aiRun');
 const aiHubRoute = require('./routes/aiHub');
 const aiEntitlementRoute = require('./routes/aiEntitlement');
 const aiBriefRoute = require('./routes/aiBrief');
+const analyticsRoute = require('./routes/analytics');
 const affiliateRoute = require('../routes/affiliateRoutes');
 const contentRoute = require('./routes/content');
 const redirectRoute = require('./routes/redirect');
@@ -35,9 +36,10 @@ app.use(express.json({ limit: '1mb' }));
 // fails HERE, before any route, and would otherwise reach the generic 500 handler at the bottom
 // of this file. Scoped to that one path; every other route's behaviour is unchanged.
 const IMPRESSIONS_PATH = '/v1/content/home-banners/impressions';
+const ANALYTICS_PATH = '/v1/analytics/events';
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  if (req.path === IMPRESSIONS_PATH && err && typeof err.type === 'string' && err.type.startsWith('entity.')) {
+  if ((req.path === IMPRESSIONS_PATH || req.path === ANALYTICS_PATH) && err && typeof err.type === 'string' && err.type.startsWith('entity.')) {
     res.status(204).end();
     return;
   }
@@ -85,6 +87,11 @@ app.use('/v1/config', configRoute);
 // same reason as /v1/config above: a background ping the app sends as users scroll must not use
 // up the per-IP budget that guards the paid AI routes. It has its own limiter (src/routes/content.js).
 app.use(IMPRESSIONS_PATH, contentRoute.homeBannerImpressionsRouter);
+
+// Minimal funnel analytics — POST /v1/analytics/events. Same placement and reason as the
+// impressions endpoint above: fire-and-forget pings with their own limiter, always 204,
+// ahead of the general limiter and sanitizeBody (see src/routes/analytics.js).
+app.use(ANALYTICS_PATH, analyticsRoute.eventsRouter);
 
 // Explore feed content (Phase 2) — GET /v1/content/explore, and the Home banner carousel —
 // GET /v1/content/home-banners. Same placement and reason as the two above: every app foreground

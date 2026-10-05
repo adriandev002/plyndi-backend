@@ -687,6 +687,19 @@ async function homeBannerStats({ fromDay, toDay }) {
   return [...stats.values()];
 }
 
+// Minimal funnel analytics (POST /v1/analytics/events) — see src/routes/analytics.js.
+// One row per event; the (event, received_at) index in db/schema.sql is the funnel-query
+// path (e.g. count paywall_viewed → trial_started per day).
+async function recordAnalyticsEvent({ event, properties, deviceId, receivedAt }) {
+  const { rows } = await getPool().query(
+    `INSERT INTO analytics_events (event, device_id, properties, received_at)
+     VALUES ($1, $2, $3::jsonb, $4)
+     RETURNING id`,
+    [event, deviceId ?? null, JSON.stringify(properties ?? {}), receivedAt ?? new Date()]
+  );
+  return Number(rows[0].id);
+}
+
 module.exports = {
   saveRun,
   getRun,
@@ -714,4 +727,5 @@ module.exports = {
   recordHomeBannerClick,
   recordHomeBannerImpressions,
   homeBannerStats,
+  recordAnalyticsEvent,
 };

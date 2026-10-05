@@ -166,22 +166,40 @@ async function main() {
   assertEqual('provider NOT called', providerCallCount, 0);
 
   // ---------------------------------------------------------------------------
-  // 5. Re-posting a digest does NOT invalidate an already-generated brief, and does NOT re-bill.
+  // 5. Digest reposts: an IDENTICAL repost never invalidates or re-bills (the common
+  //    app-foreground case); a MATERIALLY different repost invalidates the cached brief
+  //    (src/routes/aiBrief.js's isBriefDigestStale) so the next GET regenerates from
+  //    fresh data instead of showing a stale sentence about deleted data all day.
   // ---------------------------------------------------------------------------
-  console.log('\n=== re-posting a digest does not invalidate an existing brief or re-bill ===');
+  console.log('\n=== identical digest repost preserves the cache; changed digest invalidates ===');
   resetProviderState();
-  const repostRes = await postDigest(
+  const identicalRepostRes = await postDigest(
+    port,
+    { localDate: today, timeZone: 'Asia/Taipei', digest: sampleDigest },
+    device1
+  );
+  assertEqual('identical digest repost -> 200', identicalRepostRes.status, 200);
+  assertEqual('identical repost did NOT call the provider', providerCallCount, 0);
+  const afterIdenticalRepost = await getBrief(port, today, device1);
+  assertEqual('GET after identical repost IS cached', afterIdenticalRepost.json.cached, true);
+  assertEqual('GET after identical repost returns the same brief text', afterIdenticalRepost.json.brief, first.json.brief);
+  assertEqual('GET after identical repost reports the ORIGINAL generatedAt', afterIdenticalRepost.json.generatedAt, first.json.generatedAt);
+  assertEqual('provider still not called after identical repost', providerCallCount, 0);
+
+  const changedRepostRes = await postDigest(
     port,
     { localDate: today, timeZone: 'Asia/Taipei', digest: { ...sampleDigest, spend: { ...sampleDigest.spend, amount: 9999 } } },
     device1
   );
-  assertEqual('digest repost -> 200', repostRes.status, 200);
-  assertEqual('digest repost did NOT call the provider', providerCallCount, 0);
-  const afterRepost = await getBrief(port, today, device1);
-  assertEqual('GET after repost still returns the ORIGINAL cached brief text', afterRepost.json.brief, first.json.brief);
-  assertEqual('GET after repost is still cached', afterRepost.json.cached, true);
-  assertEqual('GET after repost reports the ORIGINAL generatedAt, not the repost time', afterRepost.json.generatedAt, first.json.generatedAt);
-  assertEqual('provider still not called (served from cache, not regenerated)', providerCallCount, 0);
+  assertEqual('materially-changed digest repost -> 200', changedRepostRes.status, 200);
+  assertEqual('changed repost itself did NOT call the provider', providerCallCount, 0);
+  const afterChangedRepost = await getBrief(port, today, device1);
+  assertEqual('GET after changed repost regenerates (not cached)', afterChangedRepost.json.cached, false);
+  assertEqual('GET after changed repost reports a NEW generatedAt', afterChangedRepost.json.generatedAt !== first.json.generatedAt, true);
+  assertEqual('provider called exactly once for the regeneration', providerCallCount, 1);
+  const afterRegen = await getBrief(port, today, device1);
+  assertEqual('second GET after regeneration IS cached again', afterRegen.json.cached, true);
+  assertEqual('provider still called only once total', providerCallCount, 1);
 
   // ---------------------------------------------------------------------------
   // 6. Free for the user (does NOT decrement the monthly allowance) but DOES count toward the
