@@ -54,6 +54,10 @@ const EVENT_ALLOWLIST = new Set([
   'first_trip',
   'today_viewed',
   'user_activated',
+  // Guided first action (Oct 2026): onboarding focus page + Home First Steps card.
+  // onboarding_focus_selected carries { focus: "money,travel" | "none" | "skipped" }.
+  'onboarding_focus_selected',
+  'first_steps_dismissed',
 ]);
 
 const MAX_PROPERTIES = 8;
