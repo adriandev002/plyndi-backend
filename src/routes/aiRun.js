@@ -77,6 +77,15 @@ function dailyCreditCap() {
 // otherwise spam the log on every single rejected request afterward.
 let capTripLoggedForDate = null;
 
+// What one successful run adds to the GLOBAL daily spend total. Normally its creditCost. A
+// creditCost-0 capability (free to the user — trip_cost_estimate) is still real provider spend,
+// so it uses its `globalSpendCost` instead; capabilityRegistry.js refuses to load a creditCost-0
+// file without one. The same rule src/routes/aiBrief.js applies to daily_brief, reused rather
+// than invented twice.
+function globalSpendFor(capability) {
+  return capability.creditCost > 0 ? capability.creditCost : capability.globalSpendCost;
+}
+
 function toResponse(run, extra = {}) {
   return {
     runId: run.runId,
@@ -139,8 +148,9 @@ router.post('/run', async (req, res) => {
   // This is the one limit that enforces unconditionally; a tripped cap costs nothing because the
   // provider is never reached.
   const dailyCap = dailyCreditCap();
+  const spendCost = globalSpendFor(capability);
   const spentToday = await store.globalSpendToday();
-  if (spentToday + capability.creditCost > dailyCap) {
+  if (spentToday + spendCost > dailyCap) {
     const today = new Date().toISOString().slice(0, 10);
     if (capTripLoggedForDate !== today) {
       capTripLoggedForDate = today;
@@ -160,7 +170,9 @@ router.post('/run', async (req, res) => {
   const creditsUsedSoFar = await store.creditsUsed(subject, periodStart);
   const plan = await resolvePlan(subject, store);
   const allowance = plan.allowance;
-  const wouldExceedAllowance = creditsUsedSoFar + capability.creditCost > allowance;
+  // A creditCost-0 run draws nothing from the allowance, so it is never refused for it — an
+  // over-allowance subject (possible in shadow mode) must still get the free trip estimate.
+  const wouldExceedAllowance = capability.creditCost > 0 && creditsUsedSoFar + capability.creditCost > allowance;
   if (wouldExceedAllowance) {
     if (creditsEnforceFlag()) {
       return res.status(402).json({
@@ -247,13 +259,18 @@ router.post('/run', async (req, res) => {
   };
   await store.saveRun(run);
   // 11. debit the ledger AFTER a successful run — a failed/rejected run above never reaches here,
-  // so nothing is ever charged for a run that didn't happen.
+  // so nothing is ever charged for a run that didn't happen. A creditCost-0 run is recorded by its
+  // globalSpendCost with countsTowardAllowance:false — counted by globalSpendToday(), excluded from
+  // creditsUsed() — exactly the row daily_brief writes (src/routes/aiBrief.js). For every other
+  // capability spendCost === creditCost and the flag is true (the store's default), so their rows
+  // are unchanged.
   await store.recordCredit({
     subject,
     verified,
     capabilityId,
-    creditCost: capability.creditCost,
+    creditCost: spendCost,
     runId: run.runId,
+    countsTowardAllowance: capability.creditCost > 0,
   });
 
   const creditsAfter = creditsUsedSoFar + capability.creditCost;

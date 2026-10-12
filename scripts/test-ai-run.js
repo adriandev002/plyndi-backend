@@ -95,14 +95,15 @@ const authHeaders = (extra) => Object.assign({ 'X-Plyndi-Client-Key': CLIENT_KEY
 
 async function main() {
   // ---------------------------------------------------------------------------
-  // 2. Every one of the ten capability files loads and validates (eight from Phase 1-A plus
-  //    ask_router, added in Phase 5-A, plus note_extract — Plyndi-AI-Hub-Design.md §3.2).
+  // 2. Every one of the eleven capability files loads and validates (eight from Phase 1-A plus
+  //    ask_router, added in Phase 5-A, plus note_extract — Plyndi-AI-Hub-Design.md §3.2 — plus
+  //    trip_cost_estimate, Oct 2026).
   // ---------------------------------------------------------------------------
-  console.log('\n=== capability registry: all ten load ===');
+  console.log('\n=== capability registry: all eleven load ===');
   const registry = require('../src/lib/capabilityRegistry');
   const FROZEN = [...registry.FROZEN_CAPABILITY_IDS].sort();
   const loadedIds = registry.all().map((c) => c.id).sort();
-  assertEqual('10 capability files loaded', loadedIds.length, 10);
+  assertEqual('11 capability files loaded', loadedIds.length, 11);
   assertEqual('loaded ids match the frozen ids exactly', JSON.stringify(loadedIds), JSON.stringify(FROZEN));
 
   console.log('\ncapabilities/ ids                 remote-config.json feature ids');
@@ -134,11 +135,11 @@ async function main() {
   registry.loadCapabilities();
   console.error = originalConsoleError;
   const afterBadFile = registry.all().map((c) => c.id).sort();
-  assertEqual('still exactly 10 valid capabilities loaded (bad file skipped)', afterBadFile.length, 10);
+  assertEqual('still exactly 11 valid capabilities loaded (bad file skipped)', afterBadFile.length, 11);
   check('a SKIPPING log line was printed for the malformed file', loggedSkip.includes('SKIPPING _test_malformed.json'), loggedSkip);
   fs.unlinkSync(badFile);
   registry.loadCapabilities();
-  assertEqual('back to 10 after removing the malformed file', registry.all().length, 10);
+  assertEqual('back to 11 after removing the malformed file', registry.all().length, 11);
 
   const port = await new Promise((resolve) => {
     const server = app.listen(0, () => resolve(server.address().port));

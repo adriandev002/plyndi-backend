@@ -15,7 +15,8 @@
     "form_coach": true,
     "daily_brief": true,
     "ask_router": true,
-    "note_extract": true
+    "note_extract": true,
+    "trip_cost_estimate": true
   },
   "messages": {
     "banner": null

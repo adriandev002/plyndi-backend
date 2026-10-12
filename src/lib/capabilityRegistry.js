@@ -51,6 +51,10 @@ const FROZEN_CAPABILITY_IDS = new Set([
   // Sep 2026 — Notes & Journal "Find tasks & expenses with AI". New capability (not a rename),
   // no hub card: it is invoked from the note editor only, same as ask_router's search bar.
   'note_extract',
+  // Oct 2026 — whole-trip flight + hotel estimate, run alongside trip generation. New capability
+  // (not a rename), no hub card. The first registry-loaded capability with creditCost 0 — see the
+  // creditCost/globalSpendCost rule in validationError() below.
+  'trip_cost_estimate',
 ]);
 
 let capabilities = new Map();
@@ -68,8 +72,21 @@ function validationError(id, parsed) {
   // src/routes/aiRun.js. Required so every run has a well-defined cost; a capability author who
   // forgets it gets a loud SKIPPING log at boot, the same as forgetting any other required field,
   // rather than a silent free run in production.
-  if (!Number.isInteger(parsed.creditCost) || parsed.creditCost <= 0) {
-    return '"creditCost" must be a positive integer';
+  //
+  // creditCost 0 (free to the user — trip_cost_estimate, Oct 2026) is allowed ONLY together with a
+  // positive `globalSpendCost`: a 0-cost run is still real provider spend, and src/routes/aiRun.js
+  // counts it toward the global daily cap by globalSpendCost. Without that field a 0-cost
+  // capability could be called without limit, which is exactly why daily_brief was kept out of
+  // this registry (header comment above). Same field and meaning as daily_brief.json's.
+  if (!Number.isInteger(parsed.creditCost) || parsed.creditCost < 0) {
+    return '"creditCost" must be a non-negative integer';
+  }
+  if (parsed.creditCost === 0) {
+    if (!Number.isInteger(parsed.globalSpendCost) || parsed.globalSpendCost <= 0) {
+      return '"globalSpendCost" must be a positive integer when "creditCost" is 0';
+    }
+  } else if (parsed.globalSpendCost !== undefined) {
+    return '"globalSpendCost" is only allowed when "creditCost" is 0';
   }
   if (typeof parsed.enabled !== 'boolean') return '"enabled" must be a boolean';
   if (typeof parsed.minAppVersion !== 'string' || !parsed.minAppVersion) return '"minAppVersion" must be a non-empty string';

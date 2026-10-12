@@ -526,10 +526,13 @@ schemas, profiles, token budgets and card blocks are byte-identical to before th
 | `budget_insights`, `daily_plan`, `shopping_suggestions`, `quick_add_parse`, `readiness` | 1 |
 | `receipt_scan`, `form_coach` | 2 |
 | `trip_itinerary_day`, `workout_plan` | 3 |
+| `trip_cost_estimate` (Oct 2026) | 0 (`globalSpendCost` 1) |
 
 `src/lib/capabilityRegistry.js` now also validates that `creditCost` is a positive integer — a
 capability file that omits or botches it is skipped with a loud log at boot, the same as any other
-required field, rather than silently running for free in production.
+required field, rather than silently running for free in production. The one exception (Oct 2026):
+`creditCost` 0 is accepted only together with a positive `globalSpendCost` — see "Trip cost
+estimate" below.
 
 ### `POST /v1/ai/run` — what changed
 
@@ -1035,6 +1038,37 @@ injection string in practice, hold the ~0.6 confidence line, and produce genuine
 The stub proves the pipeline is safe and correct around whatever the model returns; it cannot prove
 the model itself behaves. Also unverified: the real end-to-end round trip (an actual "Ask Plyndi"
 text box calling this route) — Phase 5-B, not part of this repo.
+
+## Trip cost estimate (Oct 2026)
+
+`capabilities/trip_cost_estimate.json` gives ONE whole-trip estimate of the two big costs the
+per-day itinerary never prices: the round-trip economy flight for the whole party and the hotel for
+every night. The iOS app runs it alongside trip generation (never awaited by it) and stores the
+result on the trip; a failed, disabled or missing estimate leaves the trip exactly as it was.
+`trip_itinerary_day.json` and the per-day flow are untouched.
+
+- **The model returns unit prices only** — per-adult/per-child/per-infant round-trip fares and one
+  room's nightly rate, plus `rooms`, `isApplicable` flags, `confidence` and a one-sentence
+  `assumptions` footnote (written in `{{context.locale}}`). The app multiplies by travellers, rooms
+  and nights, converts from the destination currency with the same ECB rate path the day costs use,
+  and discards anything non-positive or absurd. Totals are never computed by the model.
+- **Free to the user, not free to us** — `creditCost: 0`, `globalSpendCost: 1`. It is the first
+  registry-loaded capability with `creditCost` 0, so `POST /v1/ai/run` now handles that case the
+  way `src/routes/aiBrief.js` already handled `daily_brief`: the ledger row is written with
+  `globalSpendCost` as its delta and `countsTowardAllowance: false`, so it counts toward the global
+  daily cap (and is refused by it like anything else) but never draws down a subject's allowance or
+  gets refused for an exhausted one. `capabilityRegistry.js` refuses to load a `creditCost`-0 file
+  without a positive `globalSpendCost` (that combination would be uncapped free spend), and refuses
+  `globalSpendCost` on a paid capability (ambiguous which cost applies). Every pre-existing
+  capability's request path and ledger rows are unchanged.
+- **No hub card**, same as `ask_router`/`note_extract`. Added to `FROZEN_CAPABILITY_IDS` and to
+  `remote-config.json`'s `features` (the client's kill switch, `trip_cost_estimate`).
+- **Testing** — `node scripts/test-trip-cost-estimate.js`: schema contract, `toOpenAISchema`
+  strictness, prompt-injection encoding, the creditCost-0 registry rule, allowance/global-cap
+  accounting, context gates and the kill switch, all provider-stubbed. It also runs three real cases
+  (Taipei→Tokyo, Taipei→Bangkok, Taipei→Taipei) against the live model **only when**
+  `GEMINI_API_KEY` or `OPENAI_API_KEY` is set, and prints `SKIPPED` otherwise. Deliberately not in
+  `npm test`, so that command never spends provider money.
 
 ## Versioned sync backups
 
