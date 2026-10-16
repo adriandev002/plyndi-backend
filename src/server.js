@@ -93,6 +93,11 @@ app.use(IMPRESSIONS_PATH, contentRoute.homeBannerImpressionsRouter);
 // ahead of the general limiter and sanitizeBody (see src/routes/analytics.js).
 app.use(ANALYTICS_PATH, analyticsRoute.eventsRouter);
 
+// Place photo bytes — GET /v1/places/photo. After the client key, ahead of the general limiter:
+// one trip screen loads many thumbnails, which must not spend the paid AI routes' per-IP budget.
+// Has its own limiter (src/routes/places.js). Must stay mounted BEFORE app.use('/v1/places', ...).
+app.use('/v1/places/photo', placesRoute.photoRouter);
+
 // Explore feed content (Phase 2) — GET /v1/content/explore, and the Home banner carousel —
 // GET /v1/content/home-banners. Same placement and reason as the two above: every app foreground
 // fetches both, and many phones can share one carrier IP, so they must not spend the per-IP
