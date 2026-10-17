@@ -2,7 +2,7 @@
   "configVersion": 1,
   "minSupportedVersion": "1.0.0",
   "recommendedVersion": "1.0.0",
-  "updateUrl": "https://apps.apple.com/app/idPLACEHOLDER_REPLACE_WITH_REAL_APP_STORE_ID",
+  "updateUrl": "https://apps.apple.com/app/id6821974307",
   "features": {
     "ai_hub": true,
     "budget_insights": true,
@@ -16,7 +16,8 @@
     "daily_brief": true,
     "ask_router": true,
     "note_extract": true,
-    "trip_cost_estimate": true
+    "trip_cost_estimate": true,
+    "quick_add_instant_save": true
   },
   "messages": {
     "banner": null
