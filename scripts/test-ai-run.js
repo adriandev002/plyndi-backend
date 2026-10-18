@@ -117,7 +117,10 @@ async function main() {
   // daily_brief, it IS loaded through the registry and IS reachable through POST /v1/ai/run (that
   // is the whole point of building it as a capability), so it must appear on both sides of this
   // comparison.
-  const configIds = Object.keys(remoteConfig.features).filter((k) => k !== 'ai_hub' && k !== 'daily_brief').sort();
+  // `quick_add_instant_save` is an app-side UI kill switch (QuickAddInstantSave.swift), not an AI
+  // capability, so like `ai_hub` it has no capabilities/*.json file and is excluded too.
+  const NON_CAPABILITY_FLAGS = ['ai_hub', 'daily_brief', 'quick_add_instant_save'];
+  const configIds = Object.keys(remoteConfig.features).filter((k) => !NON_CAPABILITY_FLAGS.includes(k)).sort();
   for (let i = 0; i < Math.max(loadedIds.length, configIds.length); i += 1) {
     console.log(`  ${(loadedIds[i] || '').padEnd(28)} ${configIds[i] || ''}`);
   }
