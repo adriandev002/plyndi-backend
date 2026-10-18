@@ -29,6 +29,11 @@ const app = express();
 // see the real client IP instead of the proxy's.
 app.set('trust proxy', 1);
 
+// The provider pass-through routes carry photos (receipt scan, Form Check) as inline base64
+// image parts, which can exceed the 1 MB default even after the app downscales them. express.json
+// skips a body that is already parsed, so these two paths get a larger limit and every other
+// route keeps 1 MB.
+app.use(['/v1/gemini', '/v1/openai'], express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // POST /v1/content/home-banners/impressions promises the app a 204 no matter what it sends (see

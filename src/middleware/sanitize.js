@@ -29,8 +29,16 @@ function redact(value) {
   return result;
 }
 
+// Inline image data (Gemini `inline_data.data`, OpenAI `data:image/...;base64,` URLs) is not
+// free text: running the phone/card patterns over it can rewrite random digit runs inside the
+// base64 and corrupt the photo. Leave image payloads byte-exact.
+function isImagePayload(value) {
+  if (value.startsWith('data:image/')) return true;
+  return value.length > 2000 && /^[A-Za-z0-9+/=\r\n]+$/.test(value);
+}
+
 function walk(node) {
-  if (typeof node === 'string') return redact(node);
+  if (typeof node === 'string') return isImagePayload(node) ? node : redact(node);
   if (Array.isArray(node)) return node.map(walk);
   if (node && typeof node === 'object') {
     const out = {};
