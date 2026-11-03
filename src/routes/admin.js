@@ -1,7 +1,7 @@
 // ============================================================================
 // /v1/admin/explore-cards, /v1/admin/explore-clicks — Phase 2 admin API for the Explore feed.
 // /v1/admin/home-banners, /v1/admin/home-banner-stats, /v1/admin/translate — the Home carousel,
-// same guard.
+// same guard. /v1/admin/user-stats — the admin "Users" tab (installs / onboarding / activation).
 // ----------------------------------------------------------------------------
 // Writes what GET /v1/content/explore reads (src/lib/store's listExploreCards/upsertExploreCard/
 // deleteExploreCard/exploreClickCounts). There is no admin HTML anywhere in this repo — the admin
@@ -26,6 +26,7 @@ const { APP_LOCALES, isAppLocale } = require('../lib/appLocales');
 const homeBannerSettings = require('../lib/homeBanners');
 const { parseVersion } = require('../lib/semver');
 const providerGateway = require('../lib/providerGateway');
+const userStats = require('../lib/userStats');
 
 const CARD_TYPES = new Set(['editorial', 'affiliate', 'firstParty']);
 const CARD_CATEGORIES = new Set(['travel', 'hotels', 'lifestyle']);
@@ -343,7 +344,11 @@ const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_STATS_DAYS = 366;
 
 function isRealDay(value) {
-  return typeof value === 'string' && DAY_PATTERN.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+  if (typeof value !== 'string' || !DAY_PATTERN.test(value)) return false;
+  // An impossible date like 2026-13-01 is an Invalid Date; toISOString() would THROW, and inside
+  // an async route handler that is an unhandled rejection that takes the whole process down.
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function addDays(day, n) {
@@ -608,6 +613,44 @@ router.get('/home-banner-stats', async (req, res) => {
   } catch (err) {
     console.error('[admin] GET /v1/admin/home-banner-stats failed:', err.message);
     res.status(500).json({ error: 'Failed to load home banner stats.' });
+  }
+});
+
+// GET /v1/admin/user-stats?from=YYYY-MM-DD&to=YYYY-MM-DD — TAIWAN days (Asia/Taipei), both
+// inclusive. Default: the last 30 days ending today in Taiwan. Counts come from analytics_events
+// (rules in src/lib/userStats.js): newInstalls = devices whose first-ever onboarding_started falls
+// on that day; the rest are distinct devices. `totals` are distinct devices over the whole range.
+// Devices in ANALYTICS_EXCLUDE_DEVICE_IDS and debug/TestFlight builds are left out.
+router.get('/user-stats', async (req, res) => {
+  const today = userStats.todayTaipei();
+  const to = req.query.to === undefined ? today : req.query.to;
+  const from = req.query.from === undefined ? addDays(to, -29) : req.query.from;
+  if (!isRealDay(from) || !isRealDay(to)) {
+    res.status(400).json({ error: 'invalid_query', details: ['"from" and "to" must be dates like 2026-11-02'] });
+    return;
+  }
+  if (from > to) {
+    res.status(400).json({ error: 'invalid_query', details: ['"from" must not be after "to"'] });
+    return;
+  }
+  if (addDays(from, MAX_STATS_DAYS - 1) < to) {
+    res.status(400).json({ error: 'invalid_query', details: [`at most ${MAX_STATS_DAYS} days at a time`] });
+    return;
+  }
+  try {
+    const exclude = userStats.excludedDeviceIds();
+    const summary = await store.analyticsSummary({ fromDay: from, toDay: to, excludeDeviceIds: exclude });
+    res.status(200).json({
+      from,
+      to,
+      today,
+      timezone: userStats.TIMEZONE,
+      excludedDeviceCount: exclude.size,
+      ...summary,
+    });
+  } catch (err) {
+    console.error('[admin] GET /v1/admin/user-stats failed:', err.message);
+    res.status(500).json({ error: 'Failed to load user stats.' });
   }
 });
 

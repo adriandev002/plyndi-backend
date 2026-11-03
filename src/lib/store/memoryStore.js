@@ -635,6 +635,32 @@ async function recordAnalyticsEvent({ event, properties, deviceId, receivedAt })
   return row.id;
 }
 
+// Admin "Users" tab — see src/lib/userStats.js for the counting rules. Same inputs as
+// postgresStore.js's analyticsSummary, computed from the in-memory rows.
+async function analyticsSummary({ fromDay, toDay, excludeDeviceIds }) {
+  const userStats = require('../userStats');
+  const { fromTs, toTs } = userStats.dayBounds(fromDay, toDay);
+  const isTestBuild = (row) => userStats.TEST_BUILDS.includes(row.properties && row.properties.build);
+  const firstInstall = new Map();
+  const events = new Map();
+  for (const row of analyticsEvents) {
+    if (!row.deviceId || isTestBuild(row)) continue;
+    const id = String(row.deviceId).toLowerCase();
+    if (row.event === userStats.INSTALL_EVENT) {
+      const seen = firstInstall.get(id);
+      if (!seen || row.receivedAt < seen) firstInstall.set(id, row.receivedAt);
+    }
+    if (row.receivedAt >= fromTs && row.receivedAt < toTs) {
+      const day = userStats.taipeiDay(row.receivedAt);
+      events.set(`${row.event}|${id}|${day}`, { event: row.event, deviceId: id, day });
+    }
+  }
+  const installs = [...firstInstall.entries()]
+    .filter(([, at]) => at >= fromTs && at < toTs)
+    .map(([deviceId, at]) => ({ deviceId, day: userStats.taipeiDay(at) }));
+  return userStats.summarize({ fromDay, toDay, installs, events: [...events.values()], exclude: excludeDeviceIds });
+}
+
 // Test-only reset so scripts/test-ai-credits.js and scripts/test-ai-brief.js can start each
 // scenario from a clean store, the same way scripts/test-ai-run.js already resets
 // providerGateway's circuit breaker between cases. Production code never calls this.
@@ -681,5 +707,6 @@ module.exports = {
   recordHomeBannerImpressions,
   homeBannerStats,
   recordAnalyticsEvent,
+  analyticsSummary,
   _resetForTests,
 };

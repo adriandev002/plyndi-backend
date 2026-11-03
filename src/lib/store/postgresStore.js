@@ -700,6 +700,44 @@ async function recordAnalyticsEvent({ event, properties, deviceId, receivedAt })
   return Number(rows[0].id);
 }
 
+// Admin "Users" tab — see src/lib/userStats.js for the counting rules. Two queries, both on the
+// (event, received_at) index: each device's first-ever onboarding_started that falls in range,
+// and one row per (event, device, Taiwan day) in range for the funnel events.
+async function analyticsSummary({ fromDay, toDay, excludeDeviceIds }) {
+  const userStats = require('../userStats');
+  const { fromTs, toTs } = userStats.dayBounds(fromDay, toDay);
+  const metricEvents = Object.values(userStats.METRIC_EVENTS);
+  const [{ rows: installRows }, { rows: eventRows }] = await Promise.all([
+    getPool().query(
+      `SELECT lower(device_id) AS device_id,
+              to_char(MIN(received_at) AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD') AS day
+       FROM analytics_events
+       WHERE event = $1 AND device_id IS NOT NULL
+         AND COALESCE(properties->>'build', '') <> ALL($2::text[])
+       GROUP BY lower(device_id)
+       HAVING MIN(received_at) >= $3 AND MIN(received_at) < $4`,
+      [userStats.INSTALL_EVENT, userStats.TEST_BUILDS, fromTs, toTs]
+    ),
+    getPool().query(
+      `SELECT event, lower(device_id) AS device_id,
+              to_char(received_at AT TIME ZONE 'Asia/Taipei', 'YYYY-MM-DD') AS day
+       FROM analytics_events
+       WHERE event = ANY($1::text[]) AND device_id IS NOT NULL
+         AND received_at >= $2 AND received_at < $3
+         AND COALESCE(properties->>'build', '') <> ALL($4::text[])
+       GROUP BY 1, 2, 3`,
+      [metricEvents, fromTs, toTs, userStats.TEST_BUILDS]
+    ),
+  ]);
+  return userStats.summarize({
+    fromDay,
+    toDay,
+    installs: installRows.map((r) => ({ deviceId: r.device_id, day: r.day })),
+    events: eventRows.map((r) => ({ event: r.event, deviceId: r.device_id, day: r.day })),
+    exclude: excludeDeviceIds,
+  });
+}
+
 module.exports = {
   saveRun,
   getRun,
@@ -728,4 +766,5 @@ module.exports = {
   recordHomeBannerImpressions,
   homeBannerStats,
   recordAnalyticsEvent,
+  analyticsSummary,
 };
