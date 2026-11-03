@@ -58,6 +58,9 @@ const EVENT_ALLOWLIST = new Set([
   // onboarding_focus_selected carries { focus: "money,travel" | "none" | "skipped" }.
   'onboarding_focus_selected',
   'first_steps_dismissed',
+  // Retention (app 1.0.1+, Plan 2): sent at most once per Taiwan calendar day when the app
+  // becomes active. Feeds "Active users" and Day-1 / Day-7 retention in GET /v1/admin/user-stats.
+  'app_opened',
 ]);
 
 const MAX_PROPERTIES = 8;

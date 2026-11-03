@@ -119,6 +119,56 @@ async function main() {
   res = await stats('?from=2026-10-20&to=2026-10-20');
   assertEqual('Oct 20: the old device counts on its first day', res.json.totals.newInstalls, 1);
 
+  console.log('\n=== app 1.0 data: no app_opened yet ===');
+  res = await stats('?from=2026-11-02&to=2026-11-03');
+  assertEqual('appOpenedSince is null before any app_opened', res.json.appOpenedSince, null);
+  check('no retention shown for cohorts without app_opened (no false 0%)',
+    res.json.retention.d1.cohort === 0 && day(res, '2026-11-02').retention.d1 === null, JSON.stringify(res.json.retention));
+
+  console.log('\n=== app_opened is accepted by POST /v1/analytics/events ===');
+  const before = (await stats('?from=2026-11-10&to=2026-11-10')).json.totals.activeUsers;
+  const posted = await new Promise((resolve, reject) => {
+    const body = JSON.stringify({ event: 'app_opened', deviceId: 'abababab-0000-4000-8000-00000000000a' });
+    const req = http.request({ port, path: '/v1/analytics/events', method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Plyndi-Client-Key': 'test-shared-key' } }, (r) => { r.resume(); r.on('end', () => resolve(r.statusCode)); });
+    req.on('error', reject); req.end(body);
+  });
+  assertEqual('POST app_opened -> 204', posted, 204);
+  const today = userStats.todayTaipei();
+  const todayRes = await stats(`?from=${today}&to=${today}`);
+  assertEqual('the posted app_opened counts as an active user today', todayRes.json.totals.activeUsers, 1);
+  check('unrelated day unaffected', before === 0);
+
+  console.log('\n=== retention (app 1.0.1 era) ===');
+  // Cohort Nov 20: R1, R2, R3 install. R1 opens Nov 21 + Nov 27 (D1 + D7), R2 opens Nov 21 only, R3 never.
+  const R = ['11111111-aaaa-4000-8000-000000000001', '22222222-aaaa-4000-8000-000000000002', '33333333-aaaa-4000-8000-000000000003'];
+  for (const id of R) {
+    await ev('onboarding_started', id, '2026-11-20T02:00:00Z');
+    await ev('app_opened', id, '2026-11-20T02:00:00Z');
+  }
+  await ev('app_opened', R[0], '2026-11-21T03:00:00Z');
+  await ev('app_opened', R[0], '2026-11-21T09:00:00Z'); // twice the same day counts once
+  await ev('app_opened', R[1], '2026-11-21T03:00:00Z');
+  await ev('app_opened', R[0], '2026-11-27T03:00:00Z');
+  // The excluded own phone opening every day must not count anywhere.
+  for (const d of ['20', '21', '27']) await ev('app_opened', DEV.mine, `2026-11-${d}T03:00:00Z`);
+
+  res = await stats('?from=2026-11-20&to=2026-11-27');
+  assertEqual('appOpenedSince = first app_opened day', res.json.appOpenedSince, '2026-11-20');
+  assertEqual('active users Nov 21 = 2 (duplicate + excluded phone ignored)', day(res, '2026-11-21').activeUsers, 2);
+  assertEqual('active users over the range = 3 distinct', res.json.totals.activeUsers, 3);
+  assertEqual('D1 cohort Nov 20 = 3', day(res, '2026-11-20').retention.d1.cohort, 3);
+  assertEqual('D1 retained Nov 20 = 2', day(res, '2026-11-20').retention.d1.retained, 2);
+  assertEqual('D7 retained Nov 20 = 1', day(res, '2026-11-20').retention.d7.retained, 1);
+  check('totals match the single cohort',
+    res.json.retention.d1.cohort === 3 && res.json.retention.d1.retained === 2 && res.json.retention.d7.retained === 1,
+    JSON.stringify(res.json.retention));
+
+  res = await stats('?from=2026-11-20&to=2026-11-25');
+  assertEqual('D7 not yet knowable when day X+7 is after the range -> null', day(res, '2026-11-20').retention.d7, null);
+  assertEqual('D7 totals exclude unknowable cohorts', res.json.retention.d7.cohort, 0);
+  assertEqual('D1 still known', day(res, '2026-11-20').retention.d1.retained, 2);
+
   console.log('\n=== helpers ===');
   assertEqual('taipeiDay crosses midnight at 16:00Z', userStats.taipeiDay(at('2026-11-02T16:00:00Z')), '2026-11-03');
   assertEqual('taipeiDay just before', userStats.taipeiDay(at('2026-11-02T15:59:59Z')), '2026-11-02');

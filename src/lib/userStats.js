@@ -22,12 +22,19 @@ const TEST_BUILDS = ['debug', 'testflight'];
 
 // Metric name -> analytics event counted as distinct devices.
 const METRIC_EVENTS = {
+  activeUsers: 'app_opened',
   finishedOnboarding: 'onboarding_completed',
   activated: 'user_activated',
   trialsStarted: 'trial_started',
   purchases: 'purchased',
 };
 const INSTALL_EVENT = 'onboarding_started';
+const OPEN_EVENT = 'app_opened';
+// Day-N retention: of the devices that first installed on day X, the share that sent app_opened
+// on day X+N. Shown only for cohorts where the answer is knowable: day X+N is inside the range,
+// and day X is on/after the first app_opened seen in the range (app 1.0 never sends it, so
+// earlier cohorts would read a false 0%).
+const RETENTION_DAYS = [1, 7];
 const METRICS = ['newInstalls', ...Object.keys(METRIC_EVENTS)];
 
 function taipeiDay(date) {
@@ -96,9 +103,45 @@ function summarize({ fromDay, toDay, installs, events, exclude }) {
   // Totals are distinct devices across the whole range, not a sum of the days.
   for (const [metric, ids] of perRange) totals[metric] = ids.size;
 
+  // ---- retention
+  const openedOn = new Map(); // day -> Set(deviceId)
+  for (const { event, deviceId, day } of events) {
+    if (event !== OPEN_EVENT || skip(deviceId) || !days.has(day)) continue;
+    if (!openedOn.has(day)) openedOn.set(day, new Set());
+    openedOn.get(day).add(String(deviceId).toLowerCase());
+  }
+  const firstOpenDay = openedOn.size ? [...openedOn.keys()].sort()[0] : null;
+  const retentionByDay = new Map(); // day -> { d1: {cohort, retained} | null, d7: ... }
+  const retentionTotals = Object.fromEntries(RETENTION_DAYS.map((n) => [`d${n}`, { cohort: 0, retained: 0 }]));
+  for (const day of days.keys()) {
+    const row = {};
+    for (const n of RETENTION_DAYS) row[`d${n}`] = null;
+    retentionByDay.set(day, row);
+  }
+  for (const { deviceId, day } of installs) {
+    if (skip(deviceId) || !days.has(day)) continue;
+    for (const n of RETENTION_DAYS) {
+      const target = addDays(day, n);
+      if (firstOpenDay === null || day < firstOpenDay || target > toDay) continue;
+      const key = `d${n}`;
+      const row = retentionByDay.get(day);
+      if (!row[key]) row[key] = { cohort: 0, retained: 0 };
+      row[key].cohort += 1;
+      retentionTotals[key].cohort += 1;
+      if (openedOn.has(target) && openedOn.get(target).has(String(deviceId).toLowerCase())) {
+        row[key].retained += 1;
+        retentionTotals[key].retained += 1;
+      }
+    }
+  }
+
   return {
-    days: [...days.entries()].map(([day, counts]) => ({ day, ...counts })),
+    days: [...days.entries()].map(([day, counts]) => ({ day, ...counts, retention: retentionByDay.get(day) })),
     totals,
+    retention: retentionTotals,
+    // Taiwan day of the first app_opened in the range (null until app 1.0.1 is out): retention
+    // and active users only mean something from this day on.
+    appOpenedSince: firstOpenDay,
   };
 }
 
@@ -107,6 +150,8 @@ module.exports = {
   TEST_BUILDS,
   METRIC_EVENTS,
   INSTALL_EVENT,
+  OPEN_EVENT,
+  RETENTION_DAYS,
   taipeiDay,
   todayTaipei,
   addDays,
