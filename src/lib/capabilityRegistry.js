@@ -16,11 +16,11 @@
 // documents for remote-config.json.
 //
 // ask_router note: unlike every other capability here, it has no `card` block — it is invoked
-// from the hub's search bar, not rendered as its own card, so src/routes/aiHub.js's card loop
-// skips it with one harmless, expected "missing card block" log line per /v1/ai/hub request (the
-// same non-bug already documented for daily_brief, except ask_router — unlike daily_brief — really
-// is loaded here, so that log line genuinely fires; see scripts/test-ai-hub.js's `allCapIds`
-// computation, which accounts for this).
+// from the hub's search bar, not rendered as its own card. src/routes/aiHub.js's card loop skips
+// every card-less capability (ask_router, note_extract, trip_cost_estimate) QUIETLY — since 3 Nov
+// 2026 there is no log line for a missing card block; only a card block that exists but fails
+// validation is logged. See scripts/test-ai-hub.js's `allCapIds` computation, which accounts for
+// card-less capabilities.
 //
 // Phase 4-A note: `daily_brief` (Plyndi-AI-Hub-Design.md §3.1) is DELIBERATELY NOT loaded through
 // this registry, even though capabilities/daily_brief.json exists and follows the same file

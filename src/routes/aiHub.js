@@ -244,6 +244,10 @@ function buildSections(callerVersion) {
 
   for (const capability of registry.all()) {
     const rawCard = capability.card;
+    // No card block at all = a capability invoked from elsewhere (ask_router: hub search bar,
+    // note_extract: note editor, trip_cost_estimate: trip generation). That is by design, not an
+    // error, so skip it quietly. A card block that EXISTS but is malformed still logs loudly below.
+    if (rawCard === undefined || rawCard === null) continue;
     const problem = cardValidationError(capability.id, rawCard);
     if (problem) {
       console.error(`[ai/hub] SKIPPING card for capability "${capability.id}": ${problem}`);
